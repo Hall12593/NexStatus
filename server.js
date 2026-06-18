@@ -222,6 +222,32 @@ function getAdminToken() {
 }
 
 /* ═══════════════════════════════════════════
+   DISCORD — estado del bot en memoria
+═══════════════════════════════════════════ */
+
+const botState = { verified: false, username: null, lastCheck: null };
+
+async function verifyBotToken(token) {
+  try {
+    const res = await fetch("https://discord.com/api/v10/users/@me", {
+      headers: { "Authorization": `Bot ${token}` },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      botState.verified  = true;
+      botState.username  = data.username;
+      botState.lastCheck = new Date().toISOString();
+      return { ok: true, username: data.username };
+    }
+    botState.verified = false;
+    return { ok: false, status: res.status };
+  } catch (e) {
+    botState.verified = false;
+    return { ok: false, error: e.message };
+  }
+}
+
+/* ═══════════════════════════════════════════
    DISCORD — editar embed cuando admin comenta
 ═══════════════════════════════════════════ */
 
@@ -753,8 +779,11 @@ app.put("/admin/api/services", adminLimiter, adminAuth, async (req, res) => {
 app.get("/admin/api/settings", adminLimiter, adminAuth, async (_req, res) => {
   const botToken = process.env.DISCORD_BOT_TOKEN ?? "";
   res.json({
-    discordBotToken:  botToken  ? `${botToken.slice(0, 8)}…`  : "",
-    discordChannelId: process.env.DISCORD_CHANNEL_ID ?? "",
+    discordBotToken:        botToken  ? `${botToken.slice(0, 8)}…`  : "",
+    discordChannelId:       process.env.DISCORD_CHANNEL_ID ?? "",
+    discordStatusChannelId: process.env.DISCORD_STATUS_CHANNEL_ID ?? "",
+    discordStatusServices:  process.env.DISCORD_STATUS_SERVICES ?? "",
+    botState,
     hasAdminToken:    !!(process.env.ADMIN_TOKEN),
     hasTotpSecret:    !!(process.env.TOTP_SECRET),
     totpSecretHint:   process.env.TOTP_SECRET ? `${process.env.TOTP_SECRET.slice(0, 4)}…` : "",
@@ -763,20 +792,25 @@ app.get("/admin/api/settings", adminLimiter, adminAuth, async (_req, res) => {
 });
 
 app.put("/admin/api/settings", adminLimiter, adminAuth, async (req, res) => {
-  const { discordBotToken, discordChannelId, adminToken, totpSecret } = req.body;
+  const { discordBotToken, discordChannelId, discordStatusChannelId, discordStatusServices, adminToken, totpSecret } = req.body;
 
   if (discordChannelId && !/^\d{1,25}$/.test(discordChannelId)) {
     return res.status(400).json({ error: "discordChannelId inválido" });
+  }
+  if (discordStatusChannelId && !/^\d{1,25}$/.test(discordStatusChannelId)) {
+    return res.status(400).json({ error: "discordStatusChannelId inválido" });
   }
   if (adminToken && IS_PROD && adminToken.length < 16) {
     return res.status(400).json({ error: "adminToken debe tener al menos 16 caracteres" });
   }
 
   const updates = {};
-  if (discordChannelId)                              updates.DISCORD_CHANNEL_ID = discordChannelId;
-  if (adminToken)                                    updates.ADMIN_TOKEN        = adminToken;
-  if (discordBotToken && !discordBotToken.includes("…")) updates.DISCORD_BOT_TOKEN = discordBotToken;
-  if (totpSecret?.trim())                            updates.TOTP_SECRET        = totpSecret.trim().toUpperCase();
+  if (discordChannelId)                              updates.DISCORD_CHANNEL_ID        = discordChannelId;
+  if (discordStatusChannelId !== undefined)          updates.DISCORD_STATUS_CHANNEL_ID = discordStatusChannelId;
+  if (discordStatusServices   !== undefined)         updates.DISCORD_STATUS_SERVICES   = discordStatusServices;
+  if (adminToken)                                    updates.ADMIN_TOKEN               = adminToken;
+  if (discordBotToken && !discordBotToken.includes("…")) updates.DISCORD_BOT_TOKEN    = discordBotToken;
+  if (totpSecret?.trim())                            updates.TOTP_SECRET               = totpSecret.trim().toUpperCase();
 
   await writeEnv(updates);
   res.json({ ok: true });
@@ -817,6 +851,109 @@ app.put("/admin/api/appearance", adminLimiter, adminAuth, async (req, res) => {
   const next    = { ...current, ...body };
   await writeJson(APPEARANCE_FILE, next);
   res.json({ ok: true, appearance: next });
+});
+
+/* ═══════════════════════════════════════════
+   ADMIN – DISCORD RELOAD / TEST / STATUS EMBED
+═══════════════════════════════════════════ */
+
+app.post("/admin/api/discord/reload", adminLimiter, adminAuth, async (_req, res) => {
+  const token = process.env.DISCORD_BOT_TOKEN;
+  if (!token) return res.status(400).json({ ok: false, error: "Sin token configurado" });
+  const result = await verifyBotToken(token);
+  if (result.ok) {
+    res.json({ ok: true, username: result.username });
+  } else {
+    res.status(400).json({ ok: false, error: `Token inválido (${result.status ?? result.error})` });
+  }
+});
+
+app.get("/admin/api/discord/status", adminLimiter, adminAuth, (_req, res) => {
+  res.json({ ...botState });
+});
+
+app.post("/admin/api/discord/test", adminLimiter, adminAuth, async (_req, res) => {
+  if (!botState.verified) {
+    return res.status(400).json({ ok: false, error: "Parece que el bot no está configurado, o si lo está, ¿has probado darle al botón de recargar?" });
+  }
+  const token     = process.env.DISCORD_BOT_TOKEN;
+  const channelId = process.env.DISCORD_CHANNEL_ID;
+  if (!channelId) return res.status(400).json({ ok: false, error: "No hay canal de alertas configurado" });
+  try {
+    const r = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+      method: "POST",
+      headers: { "Authorization": `Bot ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ embeds: [{ title: "✅ Test de conexión", description: "El bot está conectado y funcionando correctamente.", color: 0x22c55e, timestamp: new Date().toISOString() }] }),
+    });
+    if (r.ok) return res.json({ ok: true });
+    const err = await r.text();
+    res.status(400).json({ ok: false, error: `Discord respondió ${r.status}: ${err}` });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
+app.post("/admin/api/discord/send-status", adminLimiter, adminAuth, async (_req, res) => {
+  if (!botState.verified) {
+    return res.status(400).json({ ok: false, error: "Bot no verificado. Dale a Recargar primero." });
+  }
+  const token     = process.env.DISCORD_BOT_TOKEN;
+  const channelId = process.env.DISCORD_STATUS_CHANNEL_ID;
+  if (!channelId) return res.status(400).json({ ok: false, error: "No hay canal de estado configurado" });
+
+  try {
+    const [statusData, appearance] = await Promise.all([readJson(STATUS_FILE), readAppearance()]);
+    const serviceFilter = (process.env.DISCORD_STATUS_SERVICES ?? "").split(",").map(s => s.trim()).filter(Boolean);
+
+    const allServices = [];
+    for (const section of statusData.sections ?? []) {
+      for (const svc of section.services ?? []) {
+        if (!serviceFilter.length || serviceFilter.includes(svc.id)) {
+          allServices.push(svc);
+        }
+      }
+    }
+
+    const allUp     = allServices.every(s => s.status === "up");
+    const someDown  = allServices.some(s => s.status === "down");
+    const globalUp  = allServices.length === 0 || (allServices.filter(s => s.status === "up").length / allServices.length * 100).toFixed(2);
+    const color     = someDown ? 0xef4444 : (allUp ? 0x22c55e : 0xf59e0b);
+    const statusStr = someDown ? "⚠️ Degradado" : (allUp ? "✅ Operacional" : "🔄 Parcial");
+
+    const siteTitle = appearance.siteTitle?.trim() || "del sistema";
+    const embedTitle = `📡 Estado de ${siteTitle}`;
+
+    const fields = allServices.map(svc => {
+      const icon   = svc.status === "up" ? "🟢" : "🔴";
+      const uptime = typeof svc.uptime === "number" ? `${svc.uptime.toFixed(2)}%` : "—";
+      const lat    = svc.latency != null ? `${svc.latency}ms` : "—";
+      return {
+        name:   `${icon} ${svc.name}`,
+        value:  `📈 Uptime: \`${uptime}\`\n⚡ Latencia: \`${lat}\``,
+        inline: true,
+      };
+    });
+
+    const embed = {
+      title: embedTitle,
+      description: `**Uptime Global:** \`${globalUp}%\`\n**Estado:** ${statusStr}\n**Actualización:** <t:${Math.floor(Date.now() / 1000)}:R>`,
+      color,
+      timestamp: new Date().toISOString(),
+      fields,
+    };
+
+    const r = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+      method: "POST",
+      headers: { "Authorization": `Bot ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ embeds: [embed] }),
+    });
+
+    if (r.ok) return res.json({ ok: true });
+    const err = await r.text();
+    res.status(400).json({ ok: false, error: `Discord ${r.status}: ${err}` });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
 });
 
 /* ═══════════════════════════════════════════

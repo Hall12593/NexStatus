@@ -692,12 +692,35 @@
               <div class="form-hint">Solo actualiza si cambias el token. Si está en blanco, se mantiene el actual.</div>
             </div>
             <div class="form-group">
-              <label class="form-label">Channel ID</label>
+              <label class="form-label">Canal de alertas (ID)</label>
               <input class="form-input" type="text" id="cfg-discord-channel" placeholder="123456789012345678"/>
-              <div class="form-hint">ID del canal donde se enviarán notificaciones de incidentes.</div>
+              <div class="form-hint">Canal donde se envían notificaciones de incidentes.</div>
             </div>
           </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Canal de estado (ID)</label>
+              <input class="form-input" type="text" id="cfg-discord-status-channel" placeholder="123456789012345678"/>
+              <div class="form-hint">Canal donde se envía el embed de estado del sistema.</div>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <label class="form-label">Servicios en el embed de estado</label>
+            <div id="discord-status-services-list" style="display:flex;flex-wrap:wrap;gap:8px;min-height:32px;padding:8px 0;"></div>
+            <div class="form-hint">Selecciona cuáles servicios aparecen. Si no seleccionas ninguno, se incluyen todos.</div>
+          </div>
           <div id="discord-status" style="font-size:13px;color:var(--muted);margin-bottom:16px;"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-secondary" id="discord-reload-btn" style="gap:6px;">
+              <i class="fa-solid fa-rotate"></i> Recargar bot
+            </button>
+            <button class="btn btn-secondary" id="discord-test-btn" style="gap:6px;">
+              <i class="fa-solid fa-vial"></i> Test
+            </button>
+            <button class="btn btn-secondary" id="discord-send-status-btn" style="gap:6px;">
+              <i class="fa-solid fa-paper-plane"></i> Enviar embed de estado
+            </button>
+          </div>
         </div>
 
         <div class="settings-card">
@@ -1696,14 +1719,44 @@ document.getElementById("save-monitors-btn").addEventListener("click", async () 
    SETTINGS
 ═══════════════════════════════════════════ */
 
+let _discordStatusServicesSelected = [];
+
+function renderDiscordServiceCheckboxes(allServices, selectedIds) {
+  const container = document.getElementById("discord-status-services-list");
+  if (!container) return;
+  container.innerHTML = "";
+  allServices.forEach(svc => {
+    const checked = selectedIds.length === 0 || selectedIds.includes(svc.id);
+    const label = document.createElement("label");
+    label.style.cssText = "display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;padding:4px 10px;border:1px solid var(--border);border-radius:6px;background:rgba(255,255,255,.04);";
+    label.innerHTML = `<input type="checkbox" data-svc-id="${svc.id}" ${checked ? "checked" : ""}> ${esc(svc.name)}`;
+    container.appendChild(label);
+  });
+}
+
 async function loadSettings() {
   try {
     const cfg = await api("GET", "/admin/api/settings");
     document.getElementById("cfg-discord-channel").value = cfg.discordChannelId ?? "";
+    document.getElementById("cfg-discord-status-channel").value = cfg.discordStatusChannelId ?? "";
+
+    const selectedIds = (cfg.discordStatusServices ?? "").split(",").map(s => s.trim()).filter(Boolean);
+    _discordStatusServicesSelected = selectedIds;
+
+    // Load services for checkboxes
+    try {
+      const svcsData = await api("GET", "/admin/api/services");
+      const allSvcs = [];
+      for (const sec of svcsData.sections ?? []) for (const s of sec.services ?? []) allSvcs.push(s);
+      renderDiscordServiceCheckboxes(allSvcs, selectedIds);
+    } catch { /* ignore */ }
 
     const statusEl = document.getElementById("discord-status");
-    if (cfg.discordBotToken) {
-      statusEl.innerHTML = `<i class="fa-solid fa-circle-check" style="color:var(--success);"></i> Token guardado (${esc(cfg.discordBotToken)})`;
+    const bs = cfg.botState ?? {};
+    if (bs.verified) {
+      statusEl.innerHTML = `<i class="fa-solid fa-circle-check" style="color:var(--success);"></i> Bot conectado como <strong>${esc(bs.username ?? "")}</strong>`;
+    } else if (cfg.discordBotToken) {
+      statusEl.innerHTML = `<i class="fa-solid fa-circle-xmark" style="color:var(--danger);"></i> Token guardado pero bot no verificado — dale a <strong>Recargar</strong>`;
     } else {
       statusEl.innerHTML = `<i class="fa-solid fa-circle-xmark" style="color:var(--danger);"></i> Sin token configurado`;
     }
@@ -1759,10 +1812,18 @@ document.getElementById("save-appearance-btn").addEventListener("click", async (
 });
 
 document.getElementById("save-settings-btn").addEventListener("click", async () => {
-  const discordBotToken  = document.getElementById("cfg-discord-token").value.trim();
-  const discordChannelId = document.getElementById("cfg-discord-channel").value.trim();
-  const adminToken       = document.getElementById("cfg-admin-token").value.trim();
-  const totpSecret       = document.getElementById("cfg-totp-secret")?.value.trim() ?? "";
+  const discordBotToken       = document.getElementById("cfg-discord-token").value.trim();
+  const discordChannelId      = document.getElementById("cfg-discord-channel").value.trim();
+  const discordStatusChannelId = document.getElementById("cfg-discord-status-channel").value.trim();
+  const adminToken            = document.getElementById("cfg-admin-token").value.trim();
+  const totpSecret            = document.getElementById("cfg-totp-secret")?.value.trim() ?? "";
+
+  // Collect checked services
+  const checkedBoxes = document.querySelectorAll("#discord-status-services-list input[type=checkbox]:checked");
+  const allBoxes     = document.querySelectorAll("#discord-status-services-list input[type=checkbox]");
+  const discordStatusServices = checkedBoxes.length === allBoxes.length
+    ? ""
+    : Array.from(checkedBoxes).map(cb => cb.dataset.svcId).join(",");
 
   if (adminToken && adminToken.length < 16) {
     showToast("El token de admin debe tener al menos 16 caracteres", "error");
@@ -1771,10 +1832,12 @@ document.getElementById("save-settings-btn").addEventListener("click", async () 
 
   try {
     await api("PUT", "/admin/api/settings", {
-      discordBotToken:  discordBotToken  || undefined,
-      discordChannelId: discordChannelId || undefined,
-      adminToken:       adminToken       || undefined,
-      totpSecret:       totpSecret       || undefined,
+      discordBotToken:         discordBotToken         || undefined,
+      discordChannelId:        discordChannelId        || undefined,
+      discordStatusChannelId:  discordStatusChannelId,
+      discordStatusServices:   discordStatusServices,
+      adminToken:              adminToken              || undefined,
+      totpSecret:              totpSecret              || undefined,
     });
 
     if (adminToken) {
@@ -1793,6 +1856,46 @@ document.getElementById("save-settings-btn").addEventListener("click", async () 
   } catch {
     showToast("Error al guardar configuración", "error");
   }
+});
+
+document.getElementById("discord-reload-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("discord-reload-btn");
+  btn.disabled = true;
+  try {
+    const r = await api("POST", "/admin/api/discord/reload");
+    document.getElementById("discord-status").innerHTML =
+      `<i class="fa-solid fa-circle-check" style="color:var(--success);"></i> Bot conectado como <strong>${esc(r.username)}</strong>`;
+    showToast("Bot recargado correctamente");
+  } catch (e) {
+    document.getElementById("discord-status").innerHTML =
+      `<i class="fa-solid fa-circle-xmark" style="color:var(--danger);"></i> ${esc(e?.message ?? "Error al recargar")}`;
+    showToast(e?.message ?? "Error al recargar el bot", "error");
+  }
+  btn.disabled = false;
+});
+
+document.getElementById("discord-test-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("discord-test-btn");
+  btn.disabled = true;
+  try {
+    await api("POST", "/admin/api/discord/test");
+    showToast("Mensaje de test enviado al canal de alertas");
+  } catch (e) {
+    showToast(e?.message ?? "Error en el test", "error");
+  }
+  btn.disabled = false;
+});
+
+document.getElementById("discord-send-status-btn").addEventListener("click", async () => {
+  const btn = document.getElementById("discord-send-status-btn");
+  btn.disabled = true;
+  try {
+    await api("POST", "/admin/api/discord/send-status");
+    showToast("Embed de estado enviado");
+  } catch (e) {
+    showToast(e?.message ?? "Error al enviar embed", "error");
+  }
+  btn.disabled = false;
 });
 
 /* ═══════════════════════════════════════════
