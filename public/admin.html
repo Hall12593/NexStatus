@@ -1,0 +1,2028 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Nexora Admin</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous"/>
+  <style>
+    :root {
+      --bg:      #080e1c;
+      --surface: #0d1526;
+      --card:    #111827;
+      --border:  rgba(255,255,255,.08);
+      --accent:  #38bdf8;
+      --success: #22c55e;
+      --danger:  #ef4444;
+      --warning: #f59e0b;
+      --info:    #3b82f6;
+      --muted:   #94a3b8;
+      --text:    #e2e8f0;
+      --radius:  12px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: Inter, system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      font-size: 14px;
+    }
+
+    /* ── LOGIN ── */
+    /* ── LAYOUT ── */
+    #app { display: none; min-height: 100vh; }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 220px 1fr;
+      grid-template-rows: 56px 1fr;
+      min-height: 100vh;
+    }
+
+    /* ── TOPBAR ── */
+    .topbar {
+      grid-column: 1 / 3;
+      display: flex; align-items: center; gap: 16px;
+      padding: 0 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .topbar-brand {
+      display: flex; align-items: center; gap: 10px;
+      font-weight: 800; font-size: 15px; color: #fff;
+    }
+
+    .topbar-brand img { width: 28px; height: 28px; }
+
+    .topbar-badge {
+      font-size: 10px; font-weight: 700;
+      background: rgba(56,189,248,.15);
+      color: var(--accent);
+      padding: 2px 8px; border-radius: 999px;
+      text-transform: uppercase; letter-spacing: .5px;
+    }
+
+    .topbar-spacer { flex: 1; }
+
+    .topbar-link {
+      font-size: 12px; color: var(--muted);
+      text-decoration: none; display: flex; align-items: center; gap: 6px;
+      transition: color .2s;
+    }
+
+    .topbar-link:hover { color: #fff; }
+
+    .topbar-logout {
+      background: rgba(239,68,68,.1);
+      color: #ef4444; border: none; cursor: pointer;
+      padding: 7px 14px; border-radius: 8px; font-size: 13px; font-weight: 600;
+      display: flex; align-items: center; gap: 6px;
+      transition: background .2s;
+      font-family: inherit;
+    }
+
+    .topbar-logout:hover { background: rgba(239,68,68,.2); }
+
+    /* ── SIDEBAR ── */
+    .sidebar {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 20px 12px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border-radius: 10px;
+      cursor: pointer; font-weight: 500; color: var(--muted);
+      transition: all .2s;
+      border: none; background: none; text-align: left;
+      font-family: inherit; font-size: 14px; width: 100%;
+    }
+
+    .nav-item:hover   { background: rgba(255,255,255,.05); color: var(--text); }
+    .nav-item.active  { background: rgba(56,189,248,.12); color: var(--accent); }
+    .nav-item i       { width: 16px; text-align: center; }
+
+    .nav-section-label {
+      font-size: 10px; font-weight: 700; letter-spacing: 1px;
+      color: rgba(148,163,184,.4); text-transform: uppercase;
+      padding: 12px 12px 4px;
+    }
+
+    /* ── MAIN ── */
+    .main-content {
+      padding: 28px;
+      overflow-y: auto;
+    }
+
+    .page { display: none; }
+    .page.active { display: block; }
+
+    /* ── COMPONENTS ── */
+    .page-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 24px;
+    }
+
+    .page-title { font-size: 22px; font-weight: 800; color: #fff; }
+    .page-subtitle { font-size: 13px; color: var(--muted); margin-top: 3px; }
+
+    /* Stats row */
+    .stats-row {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px;
+      margin-bottom: 28px;
+    }
+
+    @media (max-width: 900px) { .stats-row { grid-template-columns: repeat(2, 1fr); } }
+
+    .stat-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 18px;
+    }
+
+    .stat-label { font-size: 12px; color: var(--muted); margin-bottom: 8px; }
+    .stat-value { font-size: 28px; font-weight: 800; color: #fff; }
+    .stat-value.green  { color: var(--success); }
+    .stat-value.red    { color: var(--danger); }
+    .stat-value.yellow { color: var(--warning); }
+    .stat-value.blue   { color: var(--accent); }
+
+    /* Table */
+    .data-table {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); overflow: hidden;
+    }
+
+    .data-table-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .data-table-title { font-weight: 700; font-size: 15px; color: #fff; }
+
+    table { width: 100%; border-collapse: collapse; }
+
+    th {
+      text-align: left; padding: 12px 20px;
+      font-size: 11px; font-weight: 700; letter-spacing: .5px;
+      text-transform: uppercase; color: var(--muted);
+      border-bottom: 1px solid var(--border);
+      background: rgba(255,255,255,.02);
+    }
+
+    td {
+      padding: 12px 20px;
+      border-bottom: 1px solid rgba(255,255,255,.04);
+      vertical-align: middle;
+    }
+
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.02); }
+
+    .empty-state {
+      padding: 48px; text-align: center;
+      color: var(--muted); font-size: 14px;
+    }
+
+    .empty-state i { font-size: 32px; display: block; margin-bottom: 12px; opacity: .4; }
+
+    /* Badges */
+    .badge {
+      font-size: 11px; font-weight: 700; padding: 3px 9px;
+      border-radius: 999px; text-transform: uppercase; letter-spacing: .5px;
+      white-space: nowrap;
+    }
+
+    .badge-up          { background: rgba(34,197,94,.12);  color: var(--success); }
+    .badge-down        { background: rgba(239,68,68,.12);  color: var(--danger); }
+    .badge-investigating { background: rgba(239,68,68,.12); color: var(--danger); }
+    .badge-identified  { background: rgba(245,158,11,.12); color: var(--warning); }
+    .badge-monitoring  { background: rgba(59,130,246,.12); color: var(--info); }
+    .badge-resolved    { background: rgba(34,197,94,.12);  color: var(--success); }
+    .badge-maintenance { background: rgba(245,158,11,.12); color: var(--warning); }
+    .badge-incident    { background: rgba(239,68,68,.12);  color: var(--danger); }
+    .badge-info        { background: rgba(59,130,246,.12); color: var(--info); }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 9px 16px; border-radius: 9px; font-size: 13px; font-weight: 600;
+      cursor: pointer; border: none; font-family: inherit;
+      transition: opacity .15s, background .15s;
+      white-space: nowrap;
+    }
+
+    .btn:hover { opacity: .85; }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+    .btn-primary   { background: var(--accent); color: #001a2c; }
+    .btn-danger    { background: rgba(239,68,68,.15); color: var(--danger); border: 1px solid rgba(239,68,68,.25); }
+    .btn-ghost     { background: rgba(255,255,255,.07); color: var(--text); }
+    .btn-success   { background: rgba(34,197,94,.15); color: var(--success); border: 1px solid rgba(34,197,94,.25); }
+    .btn-warning   { background: rgba(245,158,11,.15); color: var(--warning); border: 1px solid rgba(245,158,11,.25); }
+    .btn-sm { padding: 6px 11px; font-size: 12px; }
+
+    /* Forms */
+    .form-group { margin-bottom: 16px; }
+    .form-label {
+      display: block; font-size: 12px; font-weight: 600;
+      color: var(--muted); margin-bottom: 6px;
+      text-transform: uppercase; letter-spacing: .4px;
+    }
+
+    .form-input, .form-select, .form-textarea {
+      width: 100%; background: rgba(255,255,255,.05);
+      border: 1px solid var(--border); border-radius: 9px;
+      padding: 10px 14px; color: var(--text);
+      font-family: inherit; font-size: 14px;
+      transition: border-color .2s;
+    }
+
+    .form-input:focus, .form-select:focus, .form-textarea:focus {
+      outline: none; border-color: rgba(56,189,248,.4);
+    }
+
+    .form-select { cursor: pointer; }
+    .form-textarea { resize: vertical; min-height: 80px; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+    .form-hint { font-size: 11px; color: var(--muted); margin-top: 5px; }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed; inset: 0; z-index: 1000;
+      background: rgba(0,0,0,.6); backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px;
+    }
+
+    .modal {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 16px; width: 100%; max-width: 480px;
+      max-height: 90vh; overflow-y: auto;
+    }
+
+    .modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 20px 24px; border-bottom: 1px solid var(--border);
+    }
+
+    .modal-title { font-size: 16px; font-weight: 700; color: #fff; }
+
+    .modal-close {
+      background: none; border: none; cursor: pointer;
+      color: var(--muted); font-size: 16px;
+      transition: color .2s;
+    }
+
+    .modal-close:hover { color: #fff; }
+
+    .modal-body   { padding: 24px; }
+    .modal-footer {
+      padding: 16px 24px; border-top: 1px solid var(--border);
+      display: flex; gap: 10px; justify-content: flex-end;
+    }
+
+    /* Section editor (accordion) */
+    .section-block {
+      background: rgba(255,255,255,.03);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 12px;
+      overflow: hidden;
+    }
+
+    .section-block-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 14px 16px; cursor: pointer;
+      transition: background .2s;
+    }
+
+    .section-block-header:hover { background: rgba(255,255,255,.03); }
+
+    .section-block-title { font-weight: 700; flex: 1; }
+    .section-block-meta  { font-size: 12px; color: var(--muted); }
+    .section-block-body  { padding: 0 16px 16px; display: none; }
+    .section-block.open .section-block-body { display: block; }
+
+    .service-row {
+      display: grid; grid-template-columns: 1fr auto;
+      align-items: center; gap: 10px;
+      padding: 10px 0; border-top: 1px solid rgba(255,255,255,.05);
+    }
+
+    .service-row:first-child { border-top: none; }
+
+    .service-row-info { min-width: 0; }
+    .service-row-name { font-weight: 600; font-size: 13px; }
+    .service-row-url  { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+    .service-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+
+    /* Toast */
+    .toast-container {
+      position: fixed; bottom: 24px; right: 24px; z-index: 9999;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+
+    .toast {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px 16px;
+      display: flex; align-items: center; gap: 10px;
+      font-size: 13px; font-weight: 500;
+      box-shadow: 0 8px 32px rgba(0,0,0,.5);
+      animation: slideIn .2s ease;
+      min-width: 240px;
+    }
+
+    @keyframes slideIn {
+      from { transform: translateX(110%); opacity: 0; }
+      to   { transform: translateX(0); opacity: 1; }
+    }
+
+    .toast.success { border-color: rgba(34,197,94,.3); }
+    .toast.error   { border-color: rgba(239,68,68,.3); }
+    .toast i       { font-size: 15px; }
+    .toast.success i { color: var(--success); }
+    .toast.error   i { color: var(--danger); }
+
+    /* Settings */
+    .settings-card {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 24px; margin-bottom: 16px;
+    }
+
+    .settings-card-title { font-weight: 700; font-size: 15px; color: #fff; margin-bottom: 16px; }
+
+    /* Inline edit for icon picker */
+    .icon-preview {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px; background: rgba(255,255,255,.04);
+      border: 1px solid var(--border); border-radius: 8px;
+      font-size: 13px; cursor: pointer;
+    }
+
+    /* Incident updates list */
+    .update-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+
+    .update-entry {
+      background: rgba(255,255,255,.04);
+      border-radius: 8px; padding: 10px 12px;
+      border-left: 3px solid var(--border);
+    }
+
+    .update-entry-status  { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .4px; color: var(--accent); }
+    .update-entry-message { font-size: 13px; margin: 4px 0; }
+    .update-entry-time    { font-size: 11px; color: var(--muted); }
+
+    /* ── SERVICE DETAIL DRAWER ── */
+    .svc-drawer-overlay {
+      position: fixed; inset: 0; z-index: 500;
+      background: rgba(0,0,0,.5); backdrop-filter: blur(4px);
+      opacity: 0; transition: opacity .25s; pointer-events: none;
+    }
+    .svc-drawer-overlay.open { opacity: 1; pointer-events: auto; }
+    .svc-drawer {
+      position: fixed; top: 0; right: 0; bottom: 0; z-index: 501;
+      width: 480px; max-width: 95vw;
+      background: #0d1526; border-left: 1px solid rgba(255,255,255,.08);
+      display: flex; flex-direction: column;
+      transform: translateX(100%); transition: transform .3s cubic-bezier(.4,0,.2,1); overflow: hidden;
+    }
+    .svc-drawer.open { transform: translateX(0); }
+    .svc-drawer-header {
+      display: flex; align-items: center; gap: 14px;
+      padding: 20px 24px; border-bottom: 1px solid rgba(255,255,255,.08); flex-shrink: 0;
+    }
+    .svc-drawer-icon { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; font-size: 16px; flex-shrink: 0; }
+    .svc-drawer-icon.up   { background: rgba(34,197,94,.15); color: #22c55e; }
+    .svc-drawer-icon.down { background: rgba(239,68,68,.15); color: #ef4444; }
+    .svc-drawer-title { font-size: 16px; font-weight: 800; color: #fff; }
+    .svc-drawer-sub   { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .svc-drawer-close { margin-left: auto; background: none; border: none; cursor: pointer; color: var(--muted); font-size: 18px; padding: 4px; transition: color .2s; }
+    .svc-drawer-close:hover { color: #fff; }
+    .svc-drawer-body  { flex: 1; overflow-y: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 20px; }
+    .svc-drawer-section { }
+    .svc-drawer-section-title { font-size: 11px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+    .svc-uptime-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .svc-uptime-tile { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 12px 14px; text-align: center; }
+    .svc-uptime-tile .tile-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+    .svc-uptime-tile .tile-val   { font-size: 22px; font-weight: 800; }
+    .tile-val.excellent { color: var(--success); }
+    .tile-val.good      { color: #86efac; }
+    .tile-val.poor      { color: var(--danger); }
+    .tile-val.na        { color: var(--muted); }
+    .svc-latency-bar { background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); border-radius: 10px; padding: 14px; display: flex; align-items: center; gap: 16px; }
+    .svc-latency-val { font-size: 24px; font-weight: 800; color: #fff; white-space: nowrap; }
+    .svc-latency-sub { font-size: 12px; color: var(--muted); }
+    .svc-history-row { display: flex; gap: 3px; flex-wrap: wrap; }
+    .svc-history-dot { width: 10px; height: 10px; border-radius: 2px; cursor: default; position: relative; }
+    .svc-history-dot:hover::after {
+      content: attr(data-tip);
+      position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+      background: rgba(15,23,42,.95); border: 1px solid rgba(255,255,255,.12);
+      color: #e2e8f0; font-size: 11px; white-space: nowrap;
+      padding: 4px 8px; border-radius: 6px; pointer-events: none; z-index: 10;
+    }
+    .svc-latency-sparkline { display: flex; gap: 2px; align-items: flex-end; height: 32px; }
+    .svc-latency-bar-item {
+      flex: 1; min-width: 6px; border-radius: 3px 3px 0 0;
+      background: rgba(56,189,248,.4); cursor: default; position: relative;
+      transition: background .15s;
+    }
+    .svc-latency-bar-item:hover { background: rgba(56,189,248,.9); }
+    .svc-latency-bar-item:hover::after {
+      content: attr(data-tip);
+      position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%);
+      background: rgba(15,23,42,.95); border: 1px solid rgba(255,255,255,.12);
+      color: #e2e8f0; font-size: 11px; white-space: nowrap;
+      padding: 4px 8px; border-radius: 6px; pointer-events: none; z-index: 10;
+    }
+    .svc-history-dot.excellent { background: rgba(34,197,94,.7); }
+    .svc-history-dot.good      { background: rgba(134,239,172,.6); }
+    .svc-history-dot.poor      { background: rgba(239,68,68,.6); }
+    .svc-history-dot.nm        { background: rgba(255,255,255,.1); }
+    .svc-incident-entry { background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.06); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; }
+    .svc-incident-entry:last-child { margin-bottom: 0; }
+    .svc-incident-row  { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+    .svc-incident-title { font-size: 13px; font-weight: 600; color: #fff; }
+    .svc-incident-meta  { font-size: 11px; color: var(--muted); }
+    .svc-no-data { font-size: 13px; color: var(--muted); text-align: center; padding: 16px 0; }
+    .svc-row-clickable { cursor: pointer; }
+    .svc-row-clickable:hover td { background: rgba(56,189,248,.05) !important; }
+
+    /* Responsive */
+    @media (max-width: 768px) {
+      .layout { grid-template-columns: 1fr; grid-template-rows: 56px auto 1fr; }
+      .sidebar {
+        grid-row: 2; grid-column: 1;
+        flex-direction: row; flex-wrap: wrap;
+        padding: 8px 12px; gap: 2px;
+        border-right: none; border-bottom: 1px solid var(--border);
+      }
+      .nav-item { padding: 8px 10px; font-size: 12px; }
+      .nav-section-label { display: none; }
+      .main-content { padding: 16px; }
+      .stats-row { grid-template-columns: repeat(2, 1fr); }
+      .form-row { grid-template-columns: 1fr; }
+      .topbar { grid-column: 1; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<!-- APP -->
+<div id="app">
+  <div class="layout">
+
+    <!-- TOPBAR -->
+    <header class="topbar">
+      <div class="topbar-brand">
+        <img src="/icon.svg" alt="Nexora"/>
+        Nexora
+        <span class="topbar-badge">Admin</span>
+      </div>
+      <div class="topbar-spacer"></div>
+      <a href="/" target="_blank" class="topbar-link">
+        <i class="fa-solid fa-arrow-up-right-from-square"></i> Ver página pública
+      </a>
+      <button class="topbar-logout" id="logout-btn">
+        <i class="fa-solid fa-right-from-bracket"></i> Salir
+      </button>
+    </header>
+
+    <!-- SIDEBAR -->
+    <nav class="sidebar">
+      <span class="nav-section-label">General</span>
+      <button class="nav-item active" data-page="dashboard">
+        <i class="fa-solid fa-gauge"></i> Dashboard
+      </button>
+
+      <span class="nav-section-label">Contenido</span>
+      <button class="nav-item" data-page="announcements">
+        <i class="fa-solid fa-bullhorn"></i> Anuncios
+      </button>
+      <button class="nav-item" data-page="incidents">
+        <i class="fa-solid fa-triangle-exclamation"></i> Incidentes
+      </button>
+
+      <span class="nav-section-label">Infraestructura</span>
+      <button class="nav-item" data-page="monitors">
+        <i class="fa-solid fa-server"></i> Monitores
+      </button>
+
+      <span class="nav-section-label">Sistema</span>
+      <button class="nav-item" data-page="settings">
+        <i class="fa-solid fa-sliders"></i> Configuración
+      </button>
+    </nav>
+
+    <!-- MAIN -->
+    <main class="main-content">
+
+      <!-- ─── DASHBOARD ─── -->
+      <div class="page active" id="page-dashboard">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Dashboard</div>
+            <div class="page-subtitle" id="dash-updated">Cargando...</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <button class="btn btn-ghost" id="refresh-btn">
+              <i class="fa-solid fa-rotate-right"></i> Actualizar
+            </button>
+            <button class="btn btn-primary" id="force-check-btn">
+              <i class="fa-solid fa-bolt"></i> Forzar check
+            </button>
+          </div>
+        </div>
+
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-label">Servicios operativos</div>
+            <div class="stat-value green" id="stat-up">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Servicios caídos</div>
+            <div class="stat-value red" id="stat-down">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Incidentes activos</div>
+            <div class="stat-value yellow" id="stat-incidents">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Disponibilidad total</div>
+            <div class="stat-value blue" id="stat-uptime">—</div>
+          </div>
+        </div>
+
+        <div class="data-table">
+          <div class="data-table-header">
+            <div class="data-table-title">Estado de servicios</div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th>Servicio</th>
+                <th>Sección</th>
+                <th>Estado</th>
+                <th>Latencia</th>
+                <th>Uptime hoy</th>
+                <th>Última verificación</th>
+              </tr>
+            </thead>
+            <tbody id="dash-services-table"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ─── ANUNCIOS ─── -->
+      <div class="page" id="page-announcements">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Anuncios</div>
+            <div class="page-subtitle">Banners visibles en la página de status</div>
+          </div>
+          <button class="btn btn-primary" id="new-announcement-btn">
+            <i class="fa-solid fa-plus"></i> Nuevo anuncio
+          </button>
+        </div>
+
+        <div class="data-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Tipo</th>
+                <th>Título</th>
+                <th>Creado</th>
+                <th>Expira</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="announcements-table"></tbody>
+          </table>
+          <div id="announcements-empty" class="empty-state" style="display:none;">
+            <i class="fa-solid fa-bullhorn"></i>
+            No hay anuncios activos
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── INCIDENTES ─── -->
+      <div class="page" id="page-incidents">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Incidentes</div>
+            <div class="page-subtitle">Activos e historial reciente</div>
+          </div>
+          <button class="btn btn-primary" id="new-incident-btn">
+            <i class="fa-solid fa-plus"></i> Nuevo incidente
+          </button>
+        </div>
+
+        <div id="incidents-table-wrap" class="data-table">
+          <table>
+            <thead>
+              <tr>
+                <th>Título</th>
+                <th>Estado</th>
+                <th>Servicio</th>
+                <th>Creado</th>
+                <th>Resuelto</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="incidents-table"></tbody>
+          </table>
+          <div id="incidents-empty" class="empty-state" style="display:none;">
+            <i class="fa-solid fa-circle-check"></i>
+            No hay incidentes registrados
+          </div>
+        </div>
+      </div>
+
+      <!-- ─── MONITORES ─── -->
+      <div class="page" id="page-monitors">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Monitores</div>
+            <div class="page-subtitle">Secciones y servicios monitoreados</div>
+          </div>
+          <div style="display:flex;gap:10px;">
+            <button class="btn btn-ghost" id="add-section-btn">
+              <i class="fa-solid fa-layer-group"></i> Nueva sección
+            </button>
+            <button class="btn btn-primary" id="save-monitors-btn">
+              <i class="fa-solid fa-floppy-disk"></i> Guardar cambios
+            </button>
+          </div>
+        </div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:20px;">
+          <i class="fa-solid fa-circle-info"></i>
+          Los cambios se aplican en el siguiente ciclo de monitoreo (~1 minuto).
+        </p>
+        <div id="sections-editor"></div>
+      </div>
+
+      <!-- ─── SETTINGS ─── -->
+      <div class="page" id="page-settings">
+        <div class="page-header">
+          <div>
+            <div class="page-title">Configuración</div>
+            <div class="page-subtitle">Discord, autenticación y preferencias</div>
+          </div>
+        </div>
+
+        <div class="settings-card">
+          <div class="settings-card-title"><i class="fa-brands fa-discord"></i> Discord Bot</div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Bot Token</label>
+              <input class="form-input" type="password" id="cfg-discord-token" placeholder="Pega tu bot token aquí"/>
+              <div class="form-hint">Solo actualiza si cambias el token. Si está en blanco, se mantiene el actual.</div>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Channel ID</label>
+              <input class="form-input" type="text" id="cfg-discord-channel" placeholder="123456789012345678"/>
+              <div class="form-hint">ID del canal donde se enviarán notificaciones de incidentes.</div>
+            </div>
+          </div>
+          <div id="discord-status" style="font-size:13px;color:var(--muted);margin-bottom:16px;"></div>
+        </div>
+
+        <div class="settings-card">
+          <div class="settings-card-title"><i class="fa-solid fa-lock"></i> Autenticación</div>
+          <div class="form-group">
+            <label class="form-label">Nuevo token de admin (sesión)</label>
+            <input class="form-input" type="password" id="cfg-admin-token" placeholder="Dejar vacío para no cambiar"/>
+            <div class="form-hint">Mínimo 16 caracteres. Token interno de sesión.</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">TOTP Secret (Base32)</label>
+            <input class="form-input" type="password" id="cfg-totp-secret" placeholder="JBSWY3DPEHPK3PXP"/>
+            <div class="form-hint" id="totp-hint">Genera un secret con Google Authenticator o similar. Si se configura, el login usará código TOTP de 6 dígitos.</div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" id="save-settings-btn">
+          <i class="fa-solid fa-floppy-disk"></i> Guardar configuración
+        </button>
+
+        <div class="settings-card" style="margin-top:24px;">
+          <div class="settings-card-title"><i class="fa-solid fa-palette"></i> Apariencia</div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Nombre del sitio</label>
+              <input class="form-input" type="text" id="ap-site-title" placeholder="Estado del sistema"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Texto del footer</label>
+              <input class="form-input" type="text" id="ap-footer-text" placeholder="© Nexora – Status Monitor"/>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Logo (URL)</label>
+              <input class="form-input" type="text" id="ap-logo-url" placeholder="https://.../logo.svg"/>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Favicon (URL)</label>
+              <input class="form-input" type="text" id="ap-favicon-url" placeholder="https://.../favicon.svg"/>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Tipo de fondo</label>
+              <select class="form-input" id="ap-bg-type">
+                <option value="image">Imagen</option>
+                <option value="solid">Color sólido</option>
+              </select>
+            </div>
+            <div class="form-group" id="ap-bg-image-group">
+              <label class="form-label">URL imagen de fondo</label>
+              <input class="form-input" type="text" id="ap-bg-image" placeholder="https://.../fondo.webp"/>
+            </div>
+            <div class="form-group" id="ap-bg-solid-group" style="display:none;">
+              <label class="form-label">Color sólido</label>
+              <input class="form-input" type="color" id="ap-bg-solid" style="height:40px;padding:4px;"/>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Fuente</label>
+              <select class="form-input" id="ap-font-family">
+                <option value="Inter">Inter</option>
+                <option value="Roboto">Roboto</option>
+                <option value="Poppins">Poppins</option>
+                <option value="Montserrat">Montserrat</option>
+                <option value="Open Sans">Open Sans</option>
+                <option value="JetBrains Mono">JetBrains Mono</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Color de acento</label>
+              <input class="form-input" type="color" id="ap-accent-color" style="height:40px;padding:4px;"/>
+            </div>
+          </div>
+        </div>
+
+        <button class="btn btn-primary" id="save-appearance-btn" style="margin-top:16px;">
+          <i class="fa-solid fa-floppy-disk"></i> Guardar apariencia
+        </button>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+
+<!-- SERVICE DETAIL DRAWER -->
+<div class="svc-drawer-overlay" id="svc-drawer-overlay"></div>
+<div class="svc-drawer" id="svc-drawer">
+  <div class="svc-drawer-header" id="svc-drawer-header">
+    <div class="svc-drawer-icon" id="svc-drawer-icon"><i id="svc-drawer-icon-i" class="fa-solid fa-server"></i></div>
+    <div>
+      <div class="svc-drawer-title" id="svc-drawer-title">Servicio</div>
+      <div class="svc-drawer-sub" id="svc-drawer-sub">—</div>
+    </div>
+    <button class="svc-drawer-close" id="svc-drawer-close"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+  <div class="svc-drawer-body" id="svc-drawer-body"></div>
+</div>
+
+<!-- TOAST CONTAINER -->
+<div class="toast-container" id="toast-container"></div>
+
+<script>
+/* ═══════════════════════════════════════════
+   SECURITY — XSS sanitization
+═══════════════════════════════════════════ */
+
+function esc(s) {
+  if (s == null) return "";
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/* ═══════════════════════════════════════════
+   STATE
+═══════════════════════════════════════════ */
+
+let TOKEN       = sessionStorage.getItem("nexora_admin_token") ?? "";
+let statusData  = null;
+let sectionsData = [];
+
+/* ═══════════════════════════════════════════
+   UTILS
+═══════════════════════════════════════════ */
+
+function fmt(date) {
+  if (!date) return "—";
+  try {
+    return new Date(date).toLocaleString("es-MX", { dateStyle: "short", timeStyle: "short" });
+  } catch { return "—"; }
+}
+
+function fmtRelative(iso) {
+  if (!iso) return "—";
+  const d = Date.now() - new Date(iso);
+  const m = Math.floor(d / 60_000);
+  const h = Math.floor(m / 60);
+  if (h > 24) return fmt(iso);
+  if (h > 0) return `hace ${h}h`;
+  if (m > 0) return `hace ${m}m`;
+  return "justo ahora";
+}
+
+function esc(str) {
+  if (str == null) return "";
+  return String(str)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function showToast(msg, type = "success") {
+  const icon = type === "success" ? "fa-circle-check" : "fa-circle-xmark";
+  const el = document.createElement("div");
+  el.className = `toast ${type}`;
+  el.innerHTML = `<i class="fa-solid ${icon}"></i>${msg}`;
+  document.getElementById("toast-container").appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+
+function openModal(html, { onConfirm, confirmText = "Confirmar", confirmClass = "btn-primary" } = {}) {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = html;
+
+  document.body.appendChild(overlay);
+
+  // Fix: querySelectorAll so ALL close buttons work (header X + footer Cancel)
+  overlay.querySelectorAll(".modal-close").forEach(btn => btn.addEventListener("click", () => overlay.remove()));
+  overlay.addEventListener("click", e => { if (e.target === overlay) overlay.remove(); });
+
+  if (onConfirm) {
+    const btn = overlay.querySelector("#modal-confirm");
+    if (btn) btn.addEventListener("click", () => onConfirm(overlay));
+  }
+
+  return overlay;
+}
+
+/* ═══════════════════════════════════════════
+   AUTH
+═══════════════════════════════════════════ */
+
+document.getElementById("logout-btn").addEventListener("click", () => {
+  sessionStorage.removeItem("nexora_admin_token");
+  window.location.replace("/login");
+});
+
+/* ── Verificar sesión al cargar — si no hay token válido, redirigir a /login ── */
+if (!TOKEN) {
+  window.location.replace("/login");
+} else {
+  fetch("/admin/api/settings", {
+    headers: { "x-admin-token": TOKEN },
+  }).then(r => {
+    if (!r.ok) {
+      TOKEN = "";
+      sessionStorage.removeItem("nexora_admin_token");
+      window.location.replace("/login");
+      return null;
+    }
+    return r.json();
+  }).then(cfg => {
+    if (!cfg) return;
+    // Sesión válida → mostrar app
+    document.getElementById("app").style.display = "block";
+    initApp();
+  }).catch(() => {
+    TOKEN = "";
+    sessionStorage.removeItem("nexora_admin_token");
+    window.location.replace("/login");
+  });
+}
+
+/* ═══════════════════════════════════════════
+   API HELPERS
+═══════════════════════════════════════════ */
+
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      "X-Admin-Token": TOKEN,
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+  if (res.status === 401) {
+    showToast("Token inválido. Vuelve a iniciar sesión.", "error");
+    throw new Error("Unauthorized");
+  }
+
+  return res.json();
+}
+
+/* ═══════════════════════════════════════════
+   NAVIGATION
+═══════════════════════════════════════════ */
+
+document.querySelectorAll(".nav-item").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const page = btn.dataset.page;
+    document.querySelectorAll(".nav-item").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".page").forEach(p => p.classList.remove("active"));
+    btn.classList.add("active");
+    document.getElementById(`page-${page}`).classList.add("active");
+    loadPage(page);
+  });
+});
+
+function loadPage(page) {
+  if (page === "dashboard")     loadDashboard();
+  if (page === "announcements") loadAnnouncements();
+  if (page === "incidents")     loadIncidents();
+  if (page === "monitors")      loadMonitors();
+  if (page === "settings")      loadSettings();
+}
+
+function initApp() {
+  loadDashboard();
+}
+
+/* ═══════════════════════════════════════════
+   DASHBOARD
+═══════════════════════════════════════════ */
+
+document.getElementById("refresh-btn").addEventListener("click", loadDashboard);
+
+// Force check con cooldown 5s
+let forceCheckCooldown = false;
+document.getElementById("force-check-btn").addEventListener("click", async () => {
+  if (forceCheckCooldown) return;
+  const btn = document.getElementById("force-check-btn");
+  forceCheckCooldown = true;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Checando...';
+
+  try {
+    await api("POST", "/admin/api/force-check");
+    showToast("Check forzado. Actualizando en unos segundos...");
+    setTimeout(async () => {
+      await loadDashboard();
+    }, 4000);
+  } catch {
+    showToast("Error al forzar check", "error");
+  }
+
+  setTimeout(() => {
+    forceCheckCooldown = false;
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-bolt"></i> Forzar check';
+  }, 5000);
+});
+
+async function loadDashboard() {
+  try {
+    statusData = await api("GET", "/admin/api/status");
+
+    const services  = Object.values(statusData.services ?? {});
+    const up        = services.filter(s => s.status === "up").length;
+    const down      = services.filter(s => s.status === "down").length;
+    const incidents = (statusData.incidents ?? []).filter(i => !i.resolvedAt).length;
+
+    document.getElementById("stat-up").textContent       = up;
+    document.getElementById("stat-down").textContent     = down;
+    document.getElementById("stat-incidents").textContent = incidents;
+
+    const pct = typeof statusData.totalonline === "number" ? statusData.totalonline.toFixed(2) + "%" : "—";
+    document.getElementById("stat-uptime").textContent  = pct;
+    document.getElementById("dash-updated").textContent = statusData.updatedAt
+      ? "Última actualización: " + fmt(statusData.updatedAt)
+      : "Sin datos";
+
+    const tbody = document.getElementById("dash-services-table");
+    tbody.innerHTML = "";
+
+    if (services.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:32px;">Sin servicios</td></tr>`;
+      return;
+    }
+
+    const sorted = services.sort((a, b) => {
+      if (a.status === b.status) return (a.sectionId ?? "").localeCompare(b.sectionId ?? "");
+      return a.status === "down" ? -1 : 1;
+    });
+
+    sorted.forEach(svc => {
+      const tr = document.createElement("tr");
+      const lat = typeof svc.latency === "number" ? `${svc.latency} ms` : "—";
+      const upt = typeof svc.onlineper === "number" ? svc.onlineper.toFixed(2) + "%" : "—";
+
+      tr.innerHTML = `
+        <td style="font-weight:600;color:#fff;">
+          ${svc.icon ? `<i class="${esc(svc.icon)}" style="margin-right:8px;opacity:.7;"></i>` : ""}
+          ${esc(svc.name)}
+        </td>
+        <td style="color:var(--muted);font-size:12px;">${esc(svc.sectionId ?? "—")}</td>
+        <td><span class="badge badge-${esc(svc.status)}">${svc.status === "up" ? "Operativo" : "Caído"}</span></td>
+        <td>${esc(lat)}</td>
+        <td>${esc(upt)}</td>
+        <td style="color:var(--muted);font-size:12px;">${fmtRelative(svc.checkedAt)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+    // Make rows clickable
+    tbody.querySelectorAll("tr").forEach((tr, idx) => {
+      const svc = sorted[idx];
+      if (!svc) return;
+      tr.style.cursor = "pointer";
+      tr.title = "Ver detalles de " + svc.name;
+      tr.addEventListener("click", () => openServiceDrawer(svc, statusData.incidents ?? []));
+    });
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+/* ═══════════════════════════════════════════
+   ANNOUNCEMENTS
+═══════════════════════════════════════════ */
+
+document.getElementById("new-announcement-btn").addEventListener("click", () => {
+  openModal(`
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Nuevo anuncio</div>
+        <button class="modal-close"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">Tipo</label>
+          <select class="form-select" id="ann-type">
+            <option value="info">ℹ️ Información</option>
+            <option value="maintenance">🔧 Mantenimiento programado</option>
+            <option value="incident">🔴 Incidente</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Título *</label>
+          <input class="form-input" type="text" id="ann-title" placeholder="Ej. Mantenimiento programado el domingo 3am"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Descripción</label>
+          <textarea class="form-textarea" id="ann-body" placeholder="Detalles del anuncio (opcional)"></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Expira el (opcional)</label>
+          <input class="form-input" type="datetime-local" id="ann-ends"/>
+          <div class="form-hint">Dejar vacío para que no expire automáticamente.</div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost modal-close">Cancelar</button>
+        <button class="btn btn-primary" id="modal-confirm">
+          <i class="fa-solid fa-bullhorn"></i> Publicar anuncio
+        </button>
+      </div>
+    </div>
+  `, {
+    onConfirm: async (overlay) => {
+      const type  = overlay.querySelector("#ann-type").value;
+      const title = overlay.querySelector("#ann-title").value.trim();
+      const body  = overlay.querySelector("#ann-body").value.trim();
+      const endsAt = overlay.querySelector("#ann-ends").value;
+
+      if (!title) { showToast("El título es obligatorio", "error"); return; }
+
+      try {
+        await api("POST", "/admin/api/announcements", {
+          type, title, body,
+          endsAt: endsAt ? new Date(endsAt).toISOString() : null,
+        });
+        overlay.remove();
+        showToast("Anuncio publicado correctamente");
+        loadAnnouncements();
+      } catch {
+        showToast("Error al publicar el anuncio", "error");
+      }
+    },
+  });
+});
+
+async function loadAnnouncements() {
+  const tbody = document.getElementById("announcements-table");
+  const empty = document.getElementById("announcements-empty");
+  tbody.innerHTML = "";
+
+  try {
+    const list = await api("GET", "/admin/api/announcements");
+
+    if (list.length === 0) {
+      tbody.parentElement.style.display = "none";
+      empty.style.display = "block";
+      return;
+    }
+
+    empty.style.display = "none";
+    tbody.parentElement.style.display = "";
+
+    list.forEach(ann => {
+      const tr = document.createElement("tr");
+      const TYPE_LABELS = { maintenance: "Mantenimiento", incident: "Incidente", info: "Información" };
+
+      tr.innerHTML = `
+        <td><span class="badge badge-${esc(ann.type)}">${TYPE_LABELS[ann.type] ?? esc(ann.type)}</span></td>
+        <td style="color:#fff;font-weight:500;">${esc(ann.title)}</td>
+        <td style="color:var(--muted);font-size:12px;">${fmtRelative(ann.createdAt)}</td>
+        <td style="color:var(--muted);font-size:12px;">${ann.endsAt ? fmt(ann.endsAt) : "No expira"}</td>
+        <td>
+          <button class="btn btn-danger btn-sm" data-id="${esc(ann.id)}">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </td>
+      `;
+
+      tr.querySelector("button").addEventListener("click", async () => {
+        if (!confirm("¿Eliminar este anuncio?")) return;
+        await api("DELETE", `/admin/api/announcements/${ann.id}`);
+        showToast("Anuncio eliminado");
+        loadAnnouncements();
+      });
+
+      tbody.appendChild(tr);
+    });
+  } catch {
+    showToast("Error al cargar anuncios", "error");
+  }
+}
+
+/* ═══════════════════════════════════════════
+   INCIDENTS
+═══════════════════════════════════════════ */
+
+document.getElementById("new-incident-btn").addEventListener("click", () => {
+  const serviceOptions = statusData
+    ? Object.values(statusData.services ?? {}).map(s =>
+        `<option value="${s.id}">${s.name}</option>`
+      ).join("")
+    : "";
+
+  openModal(`
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Nuevo incidente</div>
+        <button class="modal-close"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Tipo</label>
+            <select class="form-select" id="inc-status">
+              <option value="investigating">🔴 Investigando</option>
+              <option value="identified">🟡 Identificado</option>
+              <option value="monitoring">🔵 Monitoreando</option>
+              <option value="maintenance">🔧 Mantenimiento</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Servicio afectado</label>
+            <select class="form-select" id="inc-service">
+              <option value="">— Ninguno —</option>
+              ${serviceOptions}
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Título *</label>
+          <input class="form-input" type="text" id="inc-title" placeholder="Ej. Interrupción en el bot de Discord"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Mensaje inicial</label>
+          <textarea class="form-textarea" id="inc-message" placeholder="Descripción inicial del incidente..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost modal-close">Cancelar</button>
+        <button class="btn btn-primary" id="modal-confirm">
+          <i class="fa-solid fa-triangle-exclamation"></i> Crear incidente
+        </button>
+      </div>
+    </div>
+  `, {
+    onConfirm: async (overlay) => {
+      const status      = overlay.querySelector("#inc-status").value;
+      const serviceId   = overlay.querySelector("#inc-service").value;
+      const title       = overlay.querySelector("#inc-title").value.trim();
+      const message     = overlay.querySelector("#inc-message").value.trim();
+
+      if (!title) { showToast("El título es obligatorio", "error"); return; }
+
+      const services  = statusData ? Object.values(statusData.services ?? {}) : [];
+      const svc       = services.find(s => s.id === serviceId);
+
+      try {
+        await api("POST", "/admin/api/incidents", {
+          status, title, message,
+          serviceId:   serviceId || null,
+          serviceName: svc?.name || null,
+        });
+        overlay.remove();
+        showToast("Incidente creado");
+        loadIncidents();
+      } catch {
+        showToast("Error al crear incidente", "error");
+      }
+    },
+  });
+});
+
+async function loadIncidents() {
+  const tbody = document.getElementById("incidents-table");
+  const empty = document.getElementById("incidents-empty");
+  tbody.innerHTML = "";
+
+  try {
+    const list = await api("GET", "/admin/api/incidents");
+    const sorted = [...list].sort((a, b) => {
+      if (!a.resolvedAt && b.resolvedAt) return -1;
+      if (a.resolvedAt && !b.resolvedAt) return 1;
+      return new Date(b.createdAt) - new Date(a.createdAt);
+    });
+
+    if (sorted.length === 0) {
+      tbody.parentElement.style.display = "none";
+      empty.style.display = "block";
+      return;
+    }
+
+    empty.style.display = "none";
+    tbody.parentElement.style.display = "";
+
+    const STATUS_LABELS = {
+      investigating: "Investigando", identified: "Identificado",
+      monitoring: "Monitoreando", resolved: "Resuelto", maintenance: "Mantenimiento",
+    };
+
+    sorted.forEach(inc => {
+      const tr = document.createElement("tr");
+      const isResolved = !!inc.resolvedAt;
+
+      tr.innerHTML = `
+        <td style="font-weight:600;color:${isResolved ? "var(--muted)" : "#fff"};">
+          ${esc(inc.title)}
+          ${inc.automatic ? '<span style="font-size:10px;background:rgba(56,189,248,.1);color:var(--accent);padding:2px 6px;border-radius:4px;margin-left:6px;">auto</span>' : ""}
+        </td>
+        <td><span class="badge badge-${esc(inc.status)}">${STATUS_LABELS[inc.status] ?? esc(inc.status)}</span></td>
+        <td style="color:var(--muted);font-size:12px;">${esc(inc.serviceName ?? "—")}</td>
+        <td style="color:var(--muted);font-size:12px;">${fmtRelative(inc.createdAt)}</td>
+        <td style="color:var(--muted);font-size:12px;">${inc.resolvedAt ? fmtRelative(inc.resolvedAt) : "—"}</td>
+        <td>
+          <div style="display:flex;gap:6px;">
+            ${!isResolved ? `<button class="btn btn-warning btn-sm" data-action="update" data-id="${esc(inc.id)}">
+              <i class="fa-solid fa-pen"></i>
+            </button>` : ""}
+            ${!isResolved ? `<button class="btn btn-success btn-sm" data-action="resolve" data-id="${esc(inc.id)}">
+              <i class="fa-solid fa-check"></i>
+            </button>` : ""}
+            <button class="btn btn-danger btn-sm" data-action="delete" data-id="${esc(inc.id)}">
+              <i class="fa-solid fa-trash"></i>
+            </button>
+          </div>
+        </td>
+      `;
+
+      // Update button
+      tr.querySelector("[data-action='update']")?.addEventListener("click", () => addIncidentUpdate(inc));
+
+      // Resolve button
+      tr.querySelector("[data-action='resolve']")?.addEventListener("click", async () => {
+        if (!confirm("¿Marcar como resuelto?")) return;
+        await api("POST", `/admin/api/incidents/${inc.id}/updates`, {
+          status: "resolved", message: "Incidente resuelto.",
+        });
+        showToast("Incidente resuelto");
+        loadIncidents();
+      });
+
+      // Delete button
+      tr.querySelector("[data-action='delete']").addEventListener("click", async () => {
+        if (!confirm("¿Eliminar este incidente? Esta acción también eliminará el anuncio relacionado.")) return;
+        await api("DELETE", `/admin/api/incidents/${inc.id}`);
+        showToast("Incidente eliminado");
+        loadIncidents();
+      });
+
+      tbody.appendChild(tr);
+    });
+  } catch {
+    showToast("Error al cargar incidentes", "error");
+  }
+}
+
+function addIncidentUpdate(inc) {
+  const STATUS_LABELS = {
+    investigating: "🔴 Investigando", identified: "🟡 Identificado",
+    monitoring: "🔵 Monitoreando", resolved: "✅ Resuelto", maintenance: "🔧 Mantenimiento",
+  };
+
+  const updates = [...(inc.updates ?? [])].reverse().slice(0, 3).map(u => `
+    <div class="update-entry">
+      <div class="update-entry-status">${STATUS_LABELS[u.status] ?? u.status}</div>
+      <div class="update-entry-message">${u.message}</div>
+      <div class="update-entry-time">${fmt(u.at)}</div>
+    </div>
+  `).join("");
+
+  openModal(`
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Actualizar incidente</div>
+        <button class="modal-close"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <p style="color:var(--muted);font-size:13px;margin-bottom:16px;">${inc.title}</p>
+        ${updates ? `<div class="update-list" style="margin-bottom:20px;">${updates}</div>` : ""}
+        <div class="form-group">
+          <label class="form-label">Nuevo estado</label>
+          <select class="form-select" id="upd-status">
+            <option value="investigating">🔴 Investigando</option>
+            <option value="identified">🟡 Identificado</option>
+            <option value="monitoring">🔵 Monitoreando</option>
+            <option value="resolved">✅ Resuelto</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Mensaje de actualización *</label>
+          <textarea class="form-textarea" id="upd-message" placeholder="Describe el progreso del incidente..."></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost modal-close">Cancelar</button>
+        <button class="btn btn-primary" id="modal-confirm">
+          <i class="fa-solid fa-paper-plane"></i> Publicar actualización
+        </button>
+      </div>
+    </div>
+  `, {
+    onConfirm: async (overlay) => {
+      const status  = overlay.querySelector("#upd-status").value;
+      const message = overlay.querySelector("#upd-message").value.trim();
+      if (!message) { showToast("El mensaje es obligatorio", "error"); return; }
+      try {
+        await api("POST", `/admin/api/incidents/${inc.id}/updates`, { status, message });
+        overlay.remove();
+        showToast("Actualización publicada");
+        loadIncidents();
+      } catch {
+        showToast("Error al publicar actualización", "error");
+      }
+    },
+  });
+}
+
+/* ═══════════════════════════════════════════
+   MONITORS
+═══════════════════════════════════════════ */
+
+async function loadMonitors() {
+  const container = document.getElementById("sections-editor");
+  container.innerHTML = `<p style="color:var(--muted);">Cargando...</p>`;
+
+  try {
+    const data = await api("GET", "/admin/api/services");
+    sectionsData = data.sections ?? [];
+    renderSectionsEditor();
+  } catch {
+    showToast("Error al cargar monitores", "error");
+  }
+}
+
+function renderSectionsEditor() {
+  const container = document.getElementById("sections-editor");
+  container.innerHTML = "";
+
+  if (sectionsData.length === 0) {
+    container.innerHTML = `<div class="empty-state"><i class="fa-solid fa-server"></i>No hay secciones. Crea una nueva.</div>`;
+    return;
+  }
+
+  sectionsData.forEach((section, sIdx) => {
+    const block = document.createElement("div");
+    block.className = "section-block open";
+
+    block.innerHTML = `
+      <div class="section-block-header">
+        <i class="fa-solid fa-chevron-right" style="font-size:11px;transition:transform .2s;"></i>
+        <div class="section-block-title">${esc(section.name)}</div>
+        <div class="section-block-meta">${section.services.length} servicio${section.services.length !== 1 ? "s" : ""} • ID: ${esc(section.id)}</div>
+        <button class="btn btn-danger btn-sm" data-del-section="${sIdx}" style="margin-left:12px;">
+          <i class="fa-solid fa-trash"></i>
+        </button>
+      </div>
+      <div class="section-block-body">
+        <div class="services-list" id="services-${sIdx}"></div>
+        <button class="btn btn-ghost btn-sm" data-add-service="${sIdx}" style="margin-top:12px;">
+          <i class="fa-solid fa-plus"></i> Añadir servicio
+        </button>
+      </div>
+    `;
+
+    // Toggle open/close
+    block.querySelector(".section-block-header").addEventListener("click", e => {
+      if (e.target.closest("button")) return;
+      block.classList.toggle("open");
+      const chevron = block.querySelector(".fa-chevron-right, .fa-chevron-down");
+      chevron.className = block.classList.contains("open")
+        ? "fa-solid fa-chevron-down" : "fa-solid fa-chevron-right";
+      chevron.style.transition = "transform .2s";
+    });
+
+    // Delete section
+    block.querySelector(`[data-del-section]`).addEventListener("click", () => {
+      if (!confirm(`¿Eliminar la sección "${section.name}" y todos sus servicios?`)) return;
+      sectionsData.splice(sIdx, 1);
+      renderSectionsEditor();
+    });
+
+    // Add service
+    block.querySelector(`[data-add-service]`).addEventListener("click", () => {
+      openServiceModal(null, sIdx, null);
+    });
+
+    container.appendChild(block);
+
+    // Render services
+    const list = document.getElementById(`services-${sIdx}`);
+    section.services.forEach((svc, svIdx) => {
+      const row = document.createElement("div");
+      row.className = "service-row";
+      row.innerHTML = `
+        <div class="service-row-info">
+          <div class="service-row-name">
+            ${svc.icon ? `<i class="${esc(svc.icon)}" style="margin-right:6px;"></i>` : ""}
+            ${esc(svc.name)}
+            <span style="font-size:11px;color:var(--muted);margin-left:6px;">· ${esc(svc.id)}</span>
+          </div>
+          <div class="service-row-url">${esc(svc.url)}</div>
+        </div>
+        <div class="service-row-actions">
+          <button class="btn btn-ghost btn-sm" data-edit-service title="Editar">
+            <i class="fa-solid fa-pen"></i>
+          </button>
+          <button class="btn btn-danger btn-sm" data-del-service title="Eliminar">
+            <i class="fa-solid fa-trash"></i>
+          </button>
+        </div>
+      `;
+
+      row.querySelector("[data-edit-service]").addEventListener("click", () => {
+        openServiceModal(svc, sIdx, svIdx);
+      });
+
+      row.querySelector("[data-del-service]").addEventListener("click", () => {
+        if (!confirm(`¿Eliminar el servicio "${svc.name}"?`)) return;
+        sectionsData[sIdx].services.splice(svIdx, 1);
+        renderSectionsEditor();
+      });
+
+      list.appendChild(row);
+    });
+  });
+}
+
+function openServiceModal(existing, sIdx, svIdx) {
+  const isEdit = existing != null;
+
+  const checkTypeVal = existing?.checkType ?? "http";
+  openModal(`
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-header">
+        <div class="modal-title">${isEdit ? "Editar" : "Nuevo"} servicio</div>
+        <button class="modal-close"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Nombre *</label>
+            <input class="form-input" id="svc-name" type="text" placeholder="Mi Servicio" value="${esc(existing?.name ?? "")}"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">ID único *</label>
+            <input class="form-input" id="svc-id" type="text" placeholder="mi-servicio" value="${esc(existing?.id ?? "")}"/>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">URL o host:puerto *</label>
+          <input class="form-input" id="svc-url" type="text" placeholder="https://miservicio.com/health o 1.2.3.4:3306" value="${esc(existing?.url ?? "")}"/>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Tipo de check</label>
+            <select class="form-select" id="svc-check-type">
+              <option value="http"    ${checkTypeVal === "http"    ? "selected" : ""}>HTTP/HTTPS</option>
+              <option value="tcp"     ${checkTypeVal === "tcp"     ? "selected" : ""}>TCP</option>
+              <option value="keyword" ${checkTypeVal === "keyword" ? "selected" : ""}>Keyword (GET)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Método HTTP</label>
+            <select class="form-select" id="svc-method">
+              <option value="HEAD" ${(existing?.method ?? "HEAD") === "HEAD" ? "selected" : ""}>HEAD</option>
+              <option value="GET"  ${existing?.method === "GET"  ? "selected" : ""}>GET</option>
+              <option value="POST" ${existing?.method === "POST" ? "selected" : ""}>POST</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group" id="svc-keyword-group" style="${checkTypeVal === "keyword" ? "" : "display:none"}">
+          <label class="form-label">Keyword a buscar *</label>
+          <input class="form-input" id="svc-keyword" type="text" placeholder="texto que debe aparecer en la respuesta" value="${esc(existing?.keyword ?? "")}"/>
+          <div class="form-hint">El servicio se marca como operativo solo si este texto aparece en la respuesta. Cloudflare = caído.</div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Intervalo (segundos)</label>
+            <input class="form-input" id="svc-interval" type="number" min="10" placeholder="60" value="${esc(String(existing?.checkInterval ?? 60))}"/>
+            <div class="form-hint">Ej: 30 = 30s, 3600 = 1h</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Timeout (ms)</label>
+            <input class="form-input" id="svc-timeout" type="number" min="1000" placeholder="10000" value="${esc(String(existing?.timeout ?? 10000))}"/>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Icono FontAwesome</label>
+            <input class="form-input" id="svc-icon" type="text" placeholder="fa-solid fa-server" value="${esc(existing?.icon ?? "")}"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Headers (JSON, opcional)</label>
+            <textarea class="form-textarea" id="svc-headers" style="min-height:60px;" placeholder='{"Authorization": "mi-token"}'>${esc(existing?.headers ? JSON.stringify(existing.headers) : "")}</textarea>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost modal-close">Cancelar</button>
+        <button class="btn btn-primary" id="modal-confirm">
+          <i class="fa-solid fa-floppy-disk"></i> ${isEdit ? "Guardar" : "Añadir"}
+        </button>
+      </div>
+    </div>
+  `, {
+    onConfirm: (overlay) => {
+      const name       = overlay.querySelector("#svc-name").value.trim();
+      const id         = overlay.querySelector("#svc-id").value.trim().replace(/\s+/g, "-");
+      const url        = overlay.querySelector("#svc-url").value.trim();
+      const checkType  = overlay.querySelector("#svc-check-type").value;
+      const method     = overlay.querySelector("#svc-method").value;
+      const icon       = overlay.querySelector("#svc-icon").value.trim();
+      const keyword    = overlay.querySelector("#svc-keyword").value.trim();
+      const interval   = parseInt(overlay.querySelector("#svc-interval").value) || 60;
+      const timeout    = parseInt(overlay.querySelector("#svc-timeout").value) || 10000;
+      const headersRaw = overlay.querySelector("#svc-headers").value.trim();
+
+      if (!name || !id || !url) { showToast("Nombre, ID y URL son obligatorios", "error"); return; }
+      if (checkType === "keyword" && !keyword) { showToast("Keyword es obligatorio para este tipo de check", "error"); return; }
+
+      let headers = null;
+      if (headersRaw) {
+        try { headers = JSON.parse(headersRaw); }
+        catch { showToast("Los headers no son JSON válido", "error"); return; }
+      }
+
+      const svcObj = { id, name, url, checkType, checkInterval: interval, timeout };
+      if (method !== "HEAD") svcObj.method = method;
+      if (headers) svcObj.headers = headers;
+      if (icon) svcObj.icon = icon;
+      if (keyword) svcObj.keyword = keyword;
+
+      if (isEdit && svIdx !== null) {
+        sectionsData[sIdx].services[svIdx] = svcObj;
+      } else {
+        sectionsData[sIdx].services.push(svcObj);
+      }
+
+      overlay.remove();
+      renderSectionsEditor();
+    },
+  });
+
+  // Toggle keyword field
+  const overlay2 = document.querySelector(".modal-overlay:last-of-type");
+  if (overlay2) {
+    const sel = overlay2.querySelector("#svc-check-type");
+    sel?.addEventListener("change", () => {
+      const g = overlay2.querySelector("#svc-keyword-group");
+      if (g) g.style.display = sel.value === "keyword" ? "" : "none";
+    });
+  }
+}
+
+document.getElementById("add-section-btn").addEventListener("click", () => {
+  openModal(`
+    <div class="modal">
+      <div class="modal-header">
+        <div class="modal-title">Nueva sección</div>
+        <button class="modal-close"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Nombre *</label>
+            <input class="form-input" id="sec-name" type="text" placeholder="Mi Infraestructura"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">ID único *</label>
+            <input class="form-input" id="sec-id" type="text" placeholder="mi-infra"/>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost modal-close">Cancelar</button>
+        <button class="btn btn-primary" id="modal-confirm">
+          <i class="fa-solid fa-layer-group"></i> Crear sección
+        </button>
+      </div>
+    </div>
+  `, {
+    onConfirm: (overlay) => {
+      const name = overlay.querySelector("#sec-name").value.trim();
+      const id   = overlay.querySelector("#sec-id").value.trim().replace(/\s+/g, "-");
+      if (!name || !id) { showToast("Nombre e ID son obligatorios", "error"); return; }
+      if (sectionsData.find(s => s.id === id)) { showToast("Ya existe una sección con ese ID", "error"); return; }
+      sectionsData.push({ id, name, services: [] });
+      overlay.remove();
+      renderSectionsEditor();
+    },
+  });
+});
+
+document.getElementById("save-monitors-btn").addEventListener("click", async () => {
+  try {
+    const btn = document.getElementById("save-monitors-btn");
+    btn.disabled = true;
+    await api("PUT", "/admin/api/services", { sections: sectionsData });
+    showToast("Monitores guardados. Aplicando en el próximo ciclo...");
+    btn.disabled = false;
+  } catch {
+    showToast("Error al guardar monitores", "error");
+    document.getElementById("save-monitors-btn").disabled = false;
+  }
+});
+
+/* ═══════════════════════════════════════════
+   SETTINGS
+═══════════════════════════════════════════ */
+
+async function loadSettings() {
+  try {
+    const cfg = await api("GET", "/admin/api/settings");
+    document.getElementById("cfg-discord-channel").value = cfg.discordChannelId ?? "";
+
+    const statusEl = document.getElementById("discord-status");
+    if (cfg.discordBotToken) {
+      statusEl.innerHTML = `<i class="fa-solid fa-circle-check" style="color:var(--success);"></i> Token guardado (${esc(cfg.discordBotToken)})`;
+    } else {
+      statusEl.innerHTML = `<i class="fa-solid fa-circle-xmark" style="color:var(--danger);"></i> Sin token configurado`;
+    }
+
+    const totpHint = document.getElementById("totp-hint");
+    if (totpHint) {
+      if (cfg.hasTotpSecret) {
+        totpHint.innerHTML = `<i class="fa-solid fa-circle-check" style="color:var(--success);"></i> TOTP activo (${esc(cfg.totpSecretHint ?? "…")}). El login usa código de 6 dígitos.`;
+      } else {
+        totpHint.textContent = "Sin TOTP configurado. El login acepta cualquier código/token.";
+      }
+    }
+    const ap = cfg.appearance ?? {};
+    document.getElementById("ap-site-title").value   = ap.siteTitle ?? "";
+    document.getElementById("ap-footer-text").value  = ap.footerText ?? "";
+    document.getElementById("ap-logo-url").value     = ap.logoUrl ?? "";
+    document.getElementById("ap-favicon-url").value  = ap.faviconUrl ?? "";
+    document.getElementById("ap-bg-type").value      = ap.backgroundType ?? "image";
+    document.getElementById("ap-bg-image").value     = ap.backgroundImageUrl ?? "";
+    document.getElementById("ap-bg-solid").value     = ap.backgroundSolidColor || "#071025";
+    document.getElementById("ap-font-family").value  = ap.fontFamily ?? "Inter";
+    document.getElementById("ap-accent-color").value = ap.accentColor || "#38bdf8";
+    document.getElementById("ap-bg-image-group").style.display = (ap.backgroundType === "solid") ? "none"  : "block";
+    document.getElementById("ap-bg-solid-group").style.display = (ap.backgroundType === "solid") ? "block" : "none";
+  } catch {
+    showToast("Error al cargar configuración", "error");
+  }
+}
+
+document.getElementById("ap-bg-type").addEventListener("change", e => {
+  const isSolid = e.target.value === "solid";
+  document.getElementById("ap-bg-image-group").style.display = isSolid ? "none"  : "block";
+  document.getElementById("ap-bg-solid-group").style.display = isSolid ? "block" : "none";
+});
+
+document.getElementById("save-appearance-btn").addEventListener("click", async () => {
+  try {
+    await api("PUT", "/admin/api/appearance", {
+      siteTitle:            document.getElementById("ap-site-title").value.trim(),
+      footerText:           document.getElementById("ap-footer-text").value.trim(),
+      logoUrl:              document.getElementById("ap-logo-url").value.trim(),
+      faviconUrl:           document.getElementById("ap-favicon-url").value.trim(),
+      backgroundType:       document.getElementById("ap-bg-type").value,
+      backgroundImageUrl:   document.getElementById("ap-bg-image").value.trim(),
+      backgroundSolidColor: document.getElementById("ap-bg-solid").value,
+      fontFamily:           document.getElementById("ap-font-family").value,
+      accentColor:          document.getElementById("ap-accent-color").value,
+    });
+    showToast("Apariencia guardada");
+  } catch {
+    showToast("Error al guardar apariencia", "error");
+  }
+});
+
+document.getElementById("save-settings-btn").addEventListener("click", async () => {
+  const discordBotToken  = document.getElementById("cfg-discord-token").value.trim();
+  const discordChannelId = document.getElementById("cfg-discord-channel").value.trim();
+  const adminToken       = document.getElementById("cfg-admin-token").value.trim();
+  const totpSecret       = document.getElementById("cfg-totp-secret")?.value.trim() ?? "";
+
+  if (adminToken && adminToken.length < 16) {
+    showToast("El token de admin debe tener al menos 16 caracteres", "error");
+    return;
+  }
+
+  try {
+    await api("PUT", "/admin/api/settings", {
+      discordBotToken:  discordBotToken  || undefined,
+      discordChannelId: discordChannelId || undefined,
+      adminToken:       adminToken       || undefined,
+      totpSecret:       totpSecret       || undefined,
+    });
+
+    if (adminToken) {
+      TOKEN = adminToken;
+      sessionStorage.setItem("nexora_admin_token", adminToken);
+      showToast("Configuración guardada. Token actualizado en sesión.");
+    } else {
+      showToast("Configuración guardada");
+    }
+
+    document.getElementById("cfg-discord-token").value  = "";
+    document.getElementById("cfg-admin-token").value    = "";
+    const totpEl = document.getElementById("cfg-totp-secret");
+    if (totpEl) totpEl.value = "";
+    loadSettings();
+  } catch {
+    showToast("Error al guardar configuración", "error");
+  }
+});
+
+/* ═══════════════════════════════════════════
+   SERVICE DETAIL DRAWER
+═══════════════════════════════════════════ */
+
+const svcDrawer        = document.getElementById("svc-drawer");
+const svcDrawerOverlay = document.getElementById("svc-drawer-overlay");
+const svcDrawerBody    = document.getElementById("svc-drawer-body");
+const svcDrawerTitle   = document.getElementById("svc-drawer-title");
+const svcDrawerSub     = document.getElementById("svc-drawer-sub");
+const svcDrawerIcon    = document.getElementById("svc-drawer-icon");
+const svcDrawerIconI   = document.getElementById("svc-drawer-icon-i");
+
+document.getElementById("svc-drawer-close").addEventListener("click", closeServiceDrawer);
+svcDrawerOverlay.addEventListener("click", closeServiceDrawer);
+
+function openServiceDrawer(svc, allIncidents) {
+  // Header
+  const iconClass = svc.icon ?? "fa-solid fa-server";
+  svcDrawerIconI.className = iconClass;
+  svcDrawerIcon.className  = "svc-drawer-icon " + (svc.status === "up" ? "up" : "down");
+  svcDrawerTitle.textContent = svc.name;
+  svcDrawerSub.textContent   = svc.url ?? svc.id ?? "—";
+
+  svcDrawerBody.innerHTML = "";
+
+  // ── Uptime tiles ──
+  const todayPct   = calcTodayUptime(svc);
+  const weekPct    = calcRangeUptime(svc, 7);
+  const monthPct   = calcRangeUptime(svc, 30);
+
+  const uptimeSection = document.createElement("div");
+  uptimeSection.className = "svc-drawer-section";
+  uptimeSection.innerHTML = `
+    <div class="svc-drawer-section-title">Disponibilidad</div>
+    <div class="svc-uptime-tiles">
+      ${uptimeTile("Hoy",    todayPct)}
+      ${uptimeTile("7 días", weekPct)}
+      ${uptimeTile("30 días", monthPct)}
+    </div>
+  `;
+  svcDrawerBody.appendChild(uptimeSection);
+
+  // ── Latency ──
+  const lat = typeof svc.latency === "number" ? svc.latency : null;
+  const latSection = document.createElement("div");
+  latSection.className = "svc-drawer-section";
+
+  // Build sparkline HTML
+  const sparkData = svc.latencySparkline ?? [];
+  let sparkHtml = "";
+  if (sparkData.length > 0) {
+    const maxLat = Math.max(...sparkData.map(d => d.avgLatency ?? 0).filter(v => v > 0), 1);
+    sparkHtml = `<div style="margin-top:10px;"><div class="svc-drawer-section-title" style="margin-bottom:6px;">Latencia 24h (promedio por hora)</div>
+      <div class="svc-latency-sparkline">` +
+      sparkData.map(d => {
+        const v   = d.avgLatency ?? 0;
+        const pct = v > 0 ? Math.max(15, Math.round((v / maxLat) * 100)) : 5;
+        const tip = d.avgLatency ? `${d.hour.slice(11,16)} · ${d.avgLatency}ms` : `${d.hour.slice(11,16)} · sin datos`;
+        return `<div class="svc-latency-bar-item" style="height:${pct}%;" data-tip="${tip}"></div>`;
+      }).join("") +
+      `</div></div>`;
+  }
+
+  latSection.innerHTML = `
+    <div class="svc-drawer-section-title">Latencia actual</div>
+    <div class="svc-latency-bar">
+      <div class="svc-latency-val">${lat !== null ? lat + " ms" : "—"}</div>
+      <div class="svc-latency-sub">Última verificación<br><span style="color:#fff;">${svc.checkedAt ? fmt(svc.checkedAt) : "—"}</span></div>
+    </div>
+    ${sparkHtml}
+  `;
+  svcDrawerBody.appendChild(latSection);
+
+  // ── History 30 días ──
+  const histSection = document.createElement("div");
+  histSection.className = "svc-drawer-section";
+  const histRow = document.createElement("div");
+  histRow.className = "svc-history-row";
+  buildDrawerHistory(histRow, svc.history ?? []);
+  histSection.innerHTML = `<div class="svc-drawer-section-title">Historial 30 días</div>`;
+  histSection.appendChild(histRow);
+  svcDrawerBody.appendChild(histSection);
+
+  // ── Incidentes relacionados ──
+  const relatedInc = (allIncidents ?? []).filter(i =>
+    i.serviceId === svc.id || i.serviceName === svc.name
+  ).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)).slice(0, 5);
+
+  const incSection = document.createElement("div");
+  incSection.className = "svc-drawer-section";
+  incSection.innerHTML = `<div class="svc-drawer-section-title">Incidentes relacionados</div>`;
+
+  if (relatedInc.length === 0) {
+    incSection.innerHTML += `<div class="svc-no-data"><i class="fa-solid fa-circle-check" style="color:var(--success);margin-right:6px;"></i>Sin incidentes registrados</div>`;
+  } else {
+    const STATUS_LABELS = { investigating:"Investigando", identified:"Identificado", monitoring:"Monitoreando", resolved:"Resuelto", maintenance:"Mantenimiento" };
+    relatedInc.forEach(inc => {
+      const entry = document.createElement("div");
+      entry.className = "svc-incident-entry";
+      const isResolved = !!inc.resolvedAt;
+      entry.innerHTML = `
+        <div class="svc-incident-row">
+          <div class="svc-incident-title">${esc(inc.title)}</div>
+          <span class="badge badge-${esc(inc.status)}">${STATUS_LABELS[inc.status] ?? esc(inc.status)}</span>
+        </div>
+        <div class="svc-incident-meta">
+          ${fmtRelative(inc.createdAt)}
+          ${isResolved ? " · Resuelto en " + formatDurationSvc(inc.createdAt, inc.resolvedAt) : ""}
+        </div>
+      `;
+      incSection.appendChild(entry);
+    });
+  }
+  svcDrawerBody.appendChild(incSection);
+
+  // Open
+  svcDrawer.classList.add("open");
+  svcDrawerOverlay.classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+
+function closeServiceDrawer() {
+  svcDrawer.classList.remove("open");
+  svcDrawerOverlay.classList.remove("open");
+  document.body.style.overflow = "";
+}
+
+function uptimeTile(label, pct) {
+  let cls = "na", val = "—";
+  if (typeof pct === "number") {
+    val = Math.round(pct) + "%";
+    cls = pct >= 95 ? "excellent" : pct >= 89 ? "good" : "poor";
+  }
+  return `<div class="svc-uptime-tile">
+    <div class="tile-label">${label}</div>
+    <div class="tile-val ${cls}">${val}</div>
+  </div>`;
+}
+
+function calcTodayUptime(svc) {
+  const history = svc.history ?? [];
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const entry = history.find(h => h.date === todayKey);
+  if (entry && typeof entry.onlineper === "number") {
+    let v = entry.onlineper;
+    if (v >= 0 && v <= 1) v *= 100;
+    return v;
+  }
+  // fallback to overall onlineper
+  if (typeof svc.onlineper === "number") {
+    let v = svc.onlineper;
+    if (v >= 0 && v <= 1) v *= 100;
+    return v;
+  }
+  return null;
+}
+
+function calcRangeUptime(svc, days) {
+  const history = svc.history ?? [];
+  if (history.length === 0) {
+    if (typeof svc.onlineper === "number") {
+      let v = svc.onlineper;
+      if (v >= 0 && v <= 1) v *= 100;
+      return v;
+    }
+    return null;
+  }
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - days);
+  const relevant = history.filter(h => h.date && new Date(h.date + "T12:00:00") >= cutoff && typeof h.onlineper === "number");
+  if (relevant.length === 0) return null;
+  const avg = relevant.reduce((s, h) => {
+    let v = h.onlineper;
+    if (v >= 0 && v <= 1) v *= 100;
+    return s + v;
+  }, 0) / relevant.length;
+  return avg;
+}
+
+function buildDrawerHistory(container, history) {
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const histMap = {};
+  for (const h of history) { if (h?.date) histMap[h.date] = h; }
+
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    const h = histMap[key];
+    const dot = document.createElement("span");
+    dot.className = "svc-history-dot";
+    if (h && typeof h.onlineper === "number") {
+      let v = h.onlineper;
+      if (v >= 0 && v <= 1) v *= 100;
+      dot.classList.add(v >= 95 ? "excellent" : v >= 89 ? "good" : "poor");
+      dot.title = key + ": " + Math.round(v) + "% uptime";
+    } else {
+      dot.classList.add("nm");
+      dot.title = key + ": sin datos";
+    }
+    container.appendChild(dot);
+  }
+}
+
+function formatDurationSvc(fromIso, toIso) {
+  const ms = new Date(toIso) - new Date(fromIso);
+  const m  = Math.floor(ms / 60_000);
+  const h  = Math.floor(m / 60);
+  const d  = Math.floor(h / 24);
+  if (d > 0) return `${d}d ${h % 24}h`;
+  if (h > 0) return `${h}h ${m % 60}m`;
+  return `${m}m`;
+}
+
+// Make dashboard rows clickable
+function patchDashboardRows() {
+  const tbody = document.getElementById("dash-services-table");
+  if (!tbody || !statusData) return;
+  const services = Object.values(statusData.services ?? {});
+  tbody.querySelectorAll("tr").forEach((tr, idx) => {
+    const svc = services[idx];
+    if (!svc) return;
+    tr.style.cursor = "pointer";
+    tr.addEventListener("click", () => {
+      openServiceDrawer(svc, statusData.incidents ?? []);
+    });
+  });
+}
+</script>
+</body>
+</html>

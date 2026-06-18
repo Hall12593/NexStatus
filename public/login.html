@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Nexora Admin — Acceso</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous"/>
+  <style>
+    :root {
+      --bg:      #080e1c;
+      --card:    #111827;
+      --border:  rgba(255,255,255,.08);
+      --accent:  #38bdf8;
+      --danger:  #ef4444;
+      --muted:   #94a3b8;
+      --text:    #e2e8f0;
+      --radius:  12px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Inter, system-ui, sans-serif;
+      background: linear-gradient(135deg, #080e1c 0%, #0d1a2e 100%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+    }
+    .login-box {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 40px;
+      width: 100%; max-width: 380px;
+      text-align: center;
+    }
+    .login-box img { width: 56px; height: 56px; margin-bottom: 20px; }
+    .login-box h1  { font-size: 22px; font-weight: 800; color: #fff; margin-bottom: 6px; }
+    .login-box p   { font-size: 13px; color: var(--muted); margin-bottom: 28px; }
+
+    .form-group { margin-bottom: 16px; text-align: left; }
+    .form-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; display: block; }
+    .form-input {
+      width: 100%; padding: 10px 14px;
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text); font-size: 14px; font-family: inherit;
+      transition: border-color .2s;
+      outline: none;
+    }
+    .form-input:focus { border-color: var(--accent); }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 20px; border-radius: var(--radius);
+      font-size: 14px; font-weight: 600; font-family: inherit;
+      cursor: pointer; border: none; transition: opacity .2s, transform .1s;
+    }
+    .btn:active { transform: scale(.98); }
+    .btn-primary { background: var(--accent); color: #0a1628; }
+    .btn-primary:hover { opacity: .9; }
+
+    #login-error {
+      color: var(--danger); font-size: 13px; margin-top: 12px;
+      display: none;
+    }
+    #spinner { display: none; }
+  </style>
+</head>
+<body>
+<div class="login-box">
+  <img src="/icon.svg" alt="Nexora"/>
+  <h1>Admin</h1>
+  <p>Ingresa tus credenciales de acceso</p>
+
+  <div class="form-group">
+    <label class="form-label">Contraseña</label>
+    <input class="form-input" type="password" id="token-input"
+           placeholder="Token de acceso"
+           autocomplete="current-password"
+           style="text-align:left;font-size:15px;letter-spacing:1px;"/>
+  </div>
+  <div class="form-group" id="totp-group">
+    <label class="form-label">
+      Código TOTP <span style="color:var(--muted);font-weight:400;">(si está configurado)</span>
+    </label>
+    <input class="form-input" type="text" id="totp-input"
+           placeholder="000000"
+           autocomplete="one-time-code"
+           inputmode="numeric" maxlength="6"
+           style="text-align:center;font-size:20px;letter-spacing:6px;font-weight:700;"/>
+  </div>
+
+  <button class="btn btn-primary" style="width:100%;justify-content:center;" id="login-btn">
+    <i class="fa-solid fa-arrow-right-to-bracket" id="btn-icon"></i>
+    <span id="btn-text">Entrar</span>
+    <i class="fa-solid fa-spinner fa-spin" id="spinner"></i>
+  </button>
+
+  <p id="login-error">—</p>
+</div>
+
+<script>
+  fetch("/api/config").then(r => r.ok ? r.json() : null).then(cfg => {
+    if (!cfg) return;
+    if (cfg.faviconUrl) document.querySelector("link[rel='icon']").href = cfg.faviconUrl;
+    if (cfg.logoUrl) document.querySelectorAll(".login-box img").forEach(el => el.src = cfg.logoUrl);
+  }).catch(() => {});
+
+  const tokenInput = document.getElementById("token-input");
+  const totpInput  = document.getElementById("totp-input");
+  const errEl      = document.getElementById("login-error");
+  const btnIcon    = document.getElementById("btn-icon");
+  const spinner    = document.getElementById("spinner");
+  const btnText    = document.getElementById("btn-text");
+
+  // Si ya hay sesión válida, ir directo al admin
+  const saved = sessionStorage.getItem("nexora_admin_token");
+  if (saved) {
+    fetch("/admin/api/settings", { headers: { "x-admin-token": saved } })
+      .then(r => {
+        if (r.ok) return r.json();
+        sessionStorage.removeItem("nexora_admin_token");
+      })
+      .then(cfg => {
+        if (!cfg) return;
+        if (cfg.hasTotpSecret) {
+          // Hay TOTP — pre-rellenar contraseña pero pedir código
+          tokenInput.value = saved;
+          totpInput.focus();
+          return;
+        }
+        // Sin TOTP → redirigir directo
+        window.location.replace("/admin");
+      })
+      .catch(() => sessionStorage.removeItem("nexora_admin_token"));
+  }
+
+  document.getElementById("login-btn").addEventListener("click", doLogin);
+  tokenInput.addEventListener("keydown", e => { if (e.key === "Enter") totpInput.focus(); });
+  totpInput.addEventListener("keydown",  e => { if (e.key === "Enter") doLogin(); });
+
+  async function doLogin() {
+    const token = tokenInput.value.trim();
+    const code  = totpInput.value.trim();
+    if (!token) { tokenInput.focus(); return; }
+
+    btnIcon.style.display  = "none";
+    spinner.style.display  = "inline-block";
+    btnText.textContent    = "Verificando…";
+
+    try {
+      const res  = await fetch("/admin/api/auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token, code }),
+      });
+      const data = await res.json();
+
+      if (data.ok) {
+        sessionStorage.setItem("nexora_admin_token", data.sessionToken ?? token);
+        window.location.replace("/admin");
+      } else {
+        showError(data.error ?? "Credenciales incorrectas");
+        totpInput.value = "";
+        totpInput.focus();
+      }
+    } catch {
+      showError("Error de conexión");
+    } finally {
+      btnIcon.style.display = "inline-block";
+      spinner.style.display = "none";
+      btnText.textContent   = "Entrar";
+    }
+  }
+
+  function showError(msg) {
+    errEl.textContent    = msg;
+    errEl.style.display  = "block";
+    setTimeout(() => { errEl.style.display = "none"; }, 3500);
+  }
+</script>
+</body>
+</html>

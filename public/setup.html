@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Nexora — Configuración inicial</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous"/>
+  <style>
+    :root {
+      --bg:      #080e1c;
+      --card:    #111827;
+      --border:  rgba(255,255,255,.08);
+      --accent:  #38bdf8;
+      --danger:  #ef4444;
+      --success: #22c55e;
+      --muted:   #94a3b8;
+      --text:    #e2e8f0;
+      --radius:  12px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: Inter, system-ui, sans-serif;
+      background: linear-gradient(135deg, #080e1c 0%, #0d1a2e 100%);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      padding: 24px;
+    }
+    .wizard {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 40px;
+      width: 100%; max-width: 620px;
+    }
+    .wizard h1 { font-size: 22px; font-weight: 800; color: #fff; margin-bottom: 4px; }
+    .wizard > p.sub { font-size: 13px; color: var(--muted); margin-bottom: 24px; }
+
+    .steps { display: flex; gap: 6px; margin-bottom: 28px; }
+    .step-dot { flex: 1; height: 4px; border-radius: 4px; background: rgba(255,255,255,.08); }
+    .step-dot.active { background: var(--accent); }
+    .step-dot.done    { background: var(--success); }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    .panel-title { font-size: 16px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+    .panel-sub   { font-size: 12px; color: var(--muted); margin-bottom: 20px; }
+
+    .form-group { margin-bottom: 16px; }
+    .form-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; display: block; }
+    .form-input, .form-select {
+      width: 100%; padding: 10px 14px;
+      background: rgba(255,255,255,.05);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text); font-size: 14px; font-family: inherit;
+      outline: none;
+    }
+    .form-input:focus, .form-select:focus { border-color: var(--accent); }
+    .form-hint { font-size: 11px; color: var(--muted); margin-top: 6px; }
+    .row { display: flex; gap: 12px; }
+    .row > * { flex: 1; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 20px; border-radius: var(--radius);
+      font-size: 14px; font-weight: 600; font-family: inherit;
+      cursor: pointer; border: none; transition: opacity .2s, transform .1s;
+    }
+    .btn:active { transform: scale(.98); }
+    .btn-primary { background: var(--accent); color: #0a1628; }
+    .btn-ghost   { background: transparent; color: var(--muted); border: 1px solid var(--border); }
+    .btn-sm      { padding: 6px 12px; font-size: 12px; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+
+    .actions { display: flex; justify-content: space-between; margin-top: 28px; }
+
+    .toggle-row { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; cursor: pointer; }
+    .toggle-row input { width: 16px; height: 16px; accent-color: var(--accent); }
+
+    .totp-secret {
+      font-family: monospace; font-size: 16px; letter-spacing: 2px;
+      background: rgba(255,255,255,.05); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 12px; text-align: center;
+      margin-bottom: 12px; word-break: break-all;
+    }
+
+    .svc-section { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; margin-bottom: 12px; }
+    .svc-section-name { display: flex; gap: 8px; margin-bottom: 10px; }
+    .svc-row { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
+    .svc-row .form-input { flex: 1; }
+    .icon-btn {
+      background: transparent; border: none; color: var(--danger);
+      cursor: pointer; font-size: 14px; padding: 6px;
+    }
+    .add-link { font-size: 12px; color: var(--accent); cursor: pointer; display: inline-block; margin-top: 4px; }
+
+    .bg-options { display: flex; gap: 10px; margin-bottom: 16px; }
+    .bg-option {
+      flex: 1; padding: 10px; border: 1px solid var(--border); border-radius: var(--radius);
+      text-align: center; cursor: pointer; font-size: 12px; color: var(--muted);
+    }
+    .bg-option.selected { border-color: var(--accent); color: #fff; background: rgba(56,189,248,.08); }
+
+    .swatch { width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--border); padding: 0; cursor: pointer; }
+
+    #wiz-error { color: var(--danger); font-size: 13px; margin-top: 12px; display: none; }
+  </style>
+</head>
+<body>
+<div class="wizard">
+  <h1>Configuración inicial</h1>
+  <p class="sub">Bienvenido. Configura tu instancia de Nexora Status antes de comenzar.</p>
+
+  <div class="steps">
+    <div class="step-dot active" data-step="0"></div>
+    <div class="step-dot" data-step="1"></div>
+    <div class="step-dot" data-step="2"></div>
+    <div class="step-dot" data-step="3"></div>
+  </div>
+
+  <!-- PASO 0 — SEGURIDAD -->
+  <div class="panel active" data-panel="0">
+    <div class="panel-title">Seguridad</div>
+    <div class="panel-sub">Define la contraseña de acceso al panel admin.</div>
+
+    <div class="form-group">
+      <label class="form-label">Contraseña de admin</label>
+      <input class="form-input" type="password" id="s-admin-token" placeholder="Mínimo 16 caracteres" autocomplete="new-password"/>
+      <div class="form-hint">Se usa para entrar a /admin. Guárdala bien, no se puede recuperar.</div>
+    </div>
+
+    <label class="toggle-row">
+      <input type="checkbox" id="s-enable-totp"/>
+      <span>Habilitar verificación TOTP (Google Authenticator / Authy)</span>
+    </label>
+
+    <div id="totp-block" style="display:none;">
+      <div class="form-hint" style="margin-bottom:8px;">Secret generado — agrégalo manualmente en tu app de autenticación (tipo: tiempo, 6 dígitos, SHA1, 30s):</div>
+      <div class="totp-secret" id="s-totp-secret">—</div>
+      <button class="btn btn-ghost btn-sm" id="s-totp-regen" type="button"><i class="fa-solid fa-rotate"></i> Generar otro</button>
+    </div>
+  </div>
+
+  <!-- PASO 1 — SERVICIOS -->
+  <div class="panel" data-panel="1">
+    <div class="panel-title">Servicios a monitorear</div>
+    <div class="panel-sub">Agrega secciones y los servicios que quieres vigilar. Puedes omitir esto y configurarlo luego desde el panel.</div>
+    <div id="svc-sections"></div>
+    <span class="add-link" id="add-section"><i class="fa-solid fa-plus"></i> Añadir sección</span>
+  </div>
+
+  <!-- PASO 2 — APARIENCIA -->
+  <div class="panel" data-panel="2">
+    <div class="panel-title">Apariencia</div>
+    <div class="panel-sub">Personaliza marca y estilo. Todo opcional, editable después.</div>
+
+    <div class="form-group">
+      <label class="form-label">Nombre del sitio</label>
+      <input class="form-input" type="text" id="a-site-title" placeholder="Estado del sistema"/>
+    </div>
+
+    <div class="row">
+      <div class="form-group">
+        <label class="form-label">Logo (URL)</label>
+        <input class="form-input" type="text" id="a-logo-url" placeholder="https://.../logo.svg"/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Favicon (URL)</label>
+        <input class="form-input" type="text" id="a-favicon-url" placeholder="https://.../favicon.svg"/>
+      </div>
+    </div>
+
+    <label class="form-label">Fondo</label>
+    <div class="bg-options">
+      <div class="bg-option selected" data-bg="image">Imagen</div>
+      <div class="bg-option" data-bg="solid">Color sólido</div>
+    </div>
+
+    <div class="form-group" id="bg-image-group">
+      <label class="form-label">URL de imagen de fondo</label>
+      <input class="form-input" type="text" id="a-bg-image" placeholder="https://.../fondo.webp"/>
+    </div>
+    <div class="form-group" id="bg-solid-group" style="display:none;">
+      <label class="form-label">Color sólido</label>
+      <input class="swatch" type="color" id="a-bg-solid" value="#071025"/>
+    </div>
+
+    <div class="row">
+      <div class="form-group">
+        <label class="form-label">Fuente</label>
+        <select class="form-select" id="a-font-family">
+          <option value="Inter">Inter</option>
+          <option value="Roboto">Roboto</option>
+          <option value="Poppins">Poppins</option>
+          <option value="Montserrat">Montserrat</option>
+          <option value="Open Sans">Open Sans</option>
+          <option value="JetBrains Mono">JetBrains Mono</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Color de acento</label>
+        <input class="swatch" type="color" id="a-accent-color" value="#38bdf8"/>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label class="form-label">Texto del footer</label>
+      <input class="form-input" type="text" id="a-footer-text" placeholder="© Nexora – Status Monitor"/>
+    </div>
+  </div>
+
+  <!-- PASO 3 — RESUMEN -->
+  <div class="panel" data-panel="3">
+    <div class="panel-title">Listo para terminar</div>
+    <div class="panel-sub">Revisa y confirma. Podrás cambiar todo después desde el panel admin.</div>
+    <div id="summary" style="font-size:13px;color:var(--muted);line-height:1.8;"></div>
+  </div>
+
+  <p id="wiz-error">—</p>
+
+  <div class="actions">
+    <button class="btn btn-ghost" id="btn-back" type="button">Atrás</button>
+    <button class="btn btn-primary" id="btn-next" type="button">Siguiente</button>
+  </div>
+</div>
+
+<script>
+const TOTAL_STEPS = 4;
+let step = 0;
+let totpSecret = "";
+let sections = [{ id: "default", name: "Servicios", services: [] }];
+
+const errEl = document.getElementById("wiz-error");
+function showError(msg) { errEl.textContent = msg; errEl.style.display = "block"; setTimeout(() => errEl.style.display = "none", 4000); }
+
+/* Bloquear acceso si ya está configurado */
+fetch("/admin/api/setup/status").then(r => r.json()).then(d => {
+  if (d.configured) window.location.replace("/login");
+}).catch(() => {});
+
+/* TOTP secret generator (Base32, client-side) */
+function genTotpSecret() {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const bytes = crypto.getRandomValues(new Uint8Array(20));
+  let out = "";
+  for (const b of bytes) out += chars[b % 32];
+  return out;
+}
+
+document.getElementById("s-enable-totp").addEventListener("change", e => {
+  document.getElementById("totp-block").style.display = e.target.checked ? "block" : "none";
+  if (e.target.checked && !totpSecret) {
+    totpSecret = genTotpSecret();
+    document.getElementById("s-totp-secret").textContent = totpSecret;
+  }
+});
+document.getElementById("s-totp-regen").addEventListener("click", () => {
+  totpSecret = genTotpSecret();
+  document.getElementById("s-totp-secret").textContent = totpSecret;
+});
+
+/* Paso 1: servicios */
+function renderSections() {
+  const wrap = document.getElementById("svc-sections");
+  wrap.innerHTML = "";
+  sections.forEach((sec, si) => {
+    const div = document.createElement("div");
+    div.className = "svc-section";
+    div.innerHTML = `
+      <div class="svc-section-name">
+        <input class="form-input" type="text" value="${escapeHtml(sec.name)}" placeholder="Nombre de sección" data-sec="${si}" data-field="name"/>
+        ${sections.length > 1 ? `<button class="icon-btn" data-remove-sec="${si}"><i class="fa-solid fa-trash"></i></button>` : ""}
+      </div>
+      <div data-services="${si}"></div>
+      <span class="add-link" data-add-svc="${si}"><i class="fa-solid fa-plus"></i> Añadir servicio</span>
+    `;
+    wrap.appendChild(div);
+    const svcWrap = div.querySelector(`[data-services="${si}"]`);
+    sec.services.forEach((svc, vi) => {
+      const row = document.createElement("div");
+      row.className = "svc-row";
+      row.innerHTML = `
+        <input class="form-input" type="text" value="${escapeHtml(svc.name)}" placeholder="Nombre" data-sec="${si}" data-svc="${vi}" data-field="name"/>
+        <input class="form-input" type="text" value="${escapeHtml(svc.url)}" placeholder="https://ejemplo.com o tcp://host:puerto" data-sec="${si}" data-svc="${vi}" data-field="url"/>
+        <button class="icon-btn" data-remove-svc="${si}:${vi}"><i class="fa-solid fa-xmark"></i></button>
+      `;
+      svcWrap.appendChild(row);
+    });
+  });
+}
+
+function escapeHtml(s) { return String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c])); }
+
+document.getElementById("svc-sections").addEventListener("input", e => {
+  const t = e.target;
+  if (t.dataset.field === "name" && t.dataset.svc === undefined) {
+    sections[+t.dataset.sec].name = t.value;
+  } else if (t.dataset.field && t.dataset.svc !== undefined) {
+    sections[+t.dataset.sec].services[+t.dataset.svc][t.dataset.field] = t.value;
+  }
+});
+document.getElementById("svc-sections").addEventListener("click", e => {
+  const addSvc = e.target.closest("[data-add-svc]");
+  const remSec = e.target.closest("[data-remove-sec]");
+  const remSvc = e.target.closest("[data-remove-svc]");
+  if (addSvc) {
+    sections[+addSvc.dataset.addSvc].services.push({ id: `svc-${Date.now()}`, name: "", url: "" });
+    renderSections();
+  } else if (remSec) {
+    sections.splice(+remSec.dataset.removeSec, 1);
+    renderSections();
+  } else if (remSvc) {
+    const [si, vi] = remSvc.dataset.removeSvc.split(":").map(Number);
+    sections[si].services.splice(vi, 1);
+    renderSections();
+  }
+});
+document.getElementById("add-section").addEventListener("click", () => {
+  sections.push({ id: `sec-${Date.now()}`, name: "", services: [] });
+  renderSections();
+});
+
+/* Paso 2: apariencia */
+let bgType = "image";
+document.querySelectorAll(".bg-option").forEach(opt => {
+  opt.addEventListener("click", () => {
+    bgType = opt.dataset.bg;
+    document.querySelectorAll(".bg-option").forEach(o => o.classList.toggle("selected", o === opt));
+    document.getElementById("bg-image-group").style.display = bgType === "image" ? "block" : "none";
+    document.getElementById("bg-solid-group").style.display = bgType === "solid" ? "block" : "none";
+  });
+});
+
+/* Navegación */
+function updateSteps() {
+  document.querySelectorAll(".step-dot").forEach((d, i) => {
+    d.classList.toggle("active", i === step);
+    d.classList.toggle("done", i < step);
+  });
+  document.querySelectorAll(".panel").forEach(p => p.classList.toggle("active", +p.dataset.panel === step));
+  document.getElementById("btn-back").style.visibility = step === 0 ? "hidden" : "visible";
+  document.getElementById("btn-next").textContent = step === TOTAL_STEPS - 1 ? "Finalizar" : "Siguiente";
+  if (step === 1) renderSections();
+  if (step === TOTAL_STEPS - 1) renderSummary();
+}
+
+function renderSummary() {
+  const adminToken = document.getElementById("s-admin-token").value;
+  const totpOn = document.getElementById("s-enable-totp").checked;
+  const svcCount = sections.reduce((n, s) => n + s.services.length, 0);
+  const title = document.getElementById("a-site-title").value || "Estado del sistema";
+  document.getElementById("summary").innerHTML = `
+    <div><i class="fa-solid fa-lock"></i> Contraseña admin: ${adminToken ? "configurada (" + adminToken.length + " caracteres)" : "—"}</div>
+    <div><i class="fa-solid fa-shield-halved"></i> TOTP: ${totpOn ? "habilitado" : "deshabilitado"}</div>
+    <div><i class="fa-solid fa-server"></i> Servicios configurados: ${svcCount} en ${sections.length} sección(es)</div>
+    <div><i class="fa-solid fa-palette"></i> Sitio: "${escapeHtml(title)}", fondo ${bgType === "solid" ? "color sólido" : "imagen"}</div>
+  `;
+}
+
+function validateStep(s) {
+  if (s === 0) {
+    const tok = document.getElementById("s-admin-token").value;
+    if (tok.length < 16) { showError("Contraseña debe tener al menos 16 caracteres."); return false; }
+  }
+  if (s === 1) {
+    for (const sec of sections) {
+      for (const svc of sec.services) {
+        if (svc.name && !svc.url) { showError(`Falta URL para "${svc.name}".`); return false; }
+      }
+    }
+  }
+  return true;
+}
+
+document.getElementById("btn-next").addEventListener("click", async () => {
+  if (!validateStep(step)) return;
+  if (step < TOTAL_STEPS - 1) { step++; updateSteps(); return; }
+  await finishSetup();
+});
+document.getElementById("btn-back").addEventListener("click", () => {
+  if (step > 0) { step--; updateSteps(); }
+});
+
+async function finishSetup() {
+  const btn = document.getElementById("btn-next");
+  btn.disabled = true;
+  btn.textContent = "Guardando…";
+
+  const payload = {
+    adminToken: document.getElementById("s-admin-token").value,
+    totpSecret: document.getElementById("s-enable-totp").checked ? totpSecret : "",
+    sections: sections
+      .filter(s => s.name)
+      .map(s => ({ ...s, services: s.services.filter(v => v.name && v.url) })),
+    appearance: {
+      siteTitle:            document.getElementById("a-site-title").value.trim() || "Estado del sistema",
+      logoUrl:               document.getElementById("a-logo-url").value.trim(),
+      faviconUrl:            document.getElementById("a-favicon-url").value.trim(),
+      backgroundType:        bgType,
+      backgroundImageUrl:    document.getElementById("a-bg-image").value.trim(),
+      backgroundSolidColor:  document.getElementById("a-bg-solid").value,
+      fontFamily:            document.getElementById("a-font-family").value,
+      accentColor:           document.getElementById("a-accent-color").value,
+      footerText:            document.getElementById("a-footer-text").value.trim(),
+    },
+  };
+
+  try {
+    const res = await fetch("/admin/api/setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!data.ok) { showError(data.error ?? "Error al guardar."); btn.disabled = false; btn.textContent = "Finalizar"; return; }
+    sessionStorage.setItem("nexora_admin_token", payload.adminToken);
+    window.location.replace("/admin");
+  } catch {
+    showError("Error de conexión.");
+    btn.disabled = false;
+    btn.textContent = "Finalizar";
+  }
+}
+
+updateSteps();
+</script>
+</body>
+</html>
