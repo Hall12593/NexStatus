@@ -2,6 +2,7 @@ import express  from "express";
 import path      from "path";
 import { fileURLToPath } from "url";
 import fs        from "fs/promises";
+import fsSync    from "fs";
 import { spawn } from "child_process";
 import cors      from "cors";
 import crypto    from "crypto";
@@ -244,6 +245,77 @@ async function verifyBotToken(token) {
   } catch (e) {
     botState.verified = false;
     return { ok: false, error: e.message };
+  }
+}
+
+async function sendStatusEmbed() {
+  if (!botState.verified) return;
+  const token     = process.env.DISCORD_BOT_TOKEN;
+  const channelId = process.env.DISCORD_STATUS_CHANNEL_ID;
+  if (!token || !channelId) return;
+
+  try {
+    const [statusData, appearance] = await Promise.all([readJson(STATUS_FILE), readAppearance()]);
+    const serviceFilter = (process.env.DISCORD_STATUS_SERVICES ?? "").split(",").map(s => s.trim()).filter(Boolean);
+
+    const allServices = Object.values(statusData.services ?? {})
+      .filter(svc => !serviceFilter.length || serviceFilter.includes(svc.id));
+
+    const allUp    = allServices.length > 0 && allServices.every(s => s.status === "up");
+    const someDown = allServices.some(s => s.status === "down");
+    const globalUp = statusData.totalonline != null
+      ? Number(statusData.totalonline).toFixed(2)
+      : (allServices.length > 0
+          ? (allServices.reduce((s, v) => s + (v.onlineper ?? 100), 0) / allServices.length).toFixed(2)
+          : "100.00");
+    const color     = someDown ? 0xef4444 : (allUp ? 0x22c55e : 0xf59e0b);
+    const statusStr = someDown ? "⚠️ Degradado" : (allUp ? "✅ Operacional" : "🔄 Parcial");
+    const siteTitle  = appearance.siteTitle?.trim() || "del sistema";
+    const embedTitle = `📡 Estado de ${siteTitle}`;
+
+    const fields = allServices.map(svc => {
+      const icon   = svc.status === "up" ? "🟢" : "🔴";
+      const uptime = typeof svc.onlineper === "number" ? `${svc.onlineper.toFixed(2)}%` : "—";
+      const lat    = svc.latency != null ? `${svc.latency}ms` : "—";
+      return { name: `${icon} ${svc.name}`, value: `📈 Uptime: \`${uptime}\`\n⚡ Latencia: \`${lat}\``, inline: true };
+    });
+
+    const chunks = [];
+    for (let i = 0; i < fields.length; i += 9) chunks.push(fields.slice(i, i + 9));
+    if (chunks.length === 0) chunks.push([]);
+
+    const embeds = chunks.map((chunk, idx) => ({
+      title:       idx === 0 ? embedTitle : undefined,
+      description: idx === 0 ? `**Uptime Global:** \`${globalUp}%\`\n**Estado:** ${statusStr}\n**Actualización:** <t:${Math.floor(Date.now() / 1000)}:R>` : undefined,
+      color,
+      timestamp:   idx === 0 ? new Date().toISOString() : undefined,
+      fields:      chunk,
+    }));
+
+    const r = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+      method: "POST",
+      headers: { "Authorization": `Bot ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ embeds }),
+    });
+    if (!r.ok) console.warn(`[discord] ⚠ status embed: ${r.status} — ${await r.text()}`);
+    else console.log("[discord] 📡 Embed de estado enviado automáticamente");
+  } catch (e) {
+    console.warn("[discord] Error en sendStatusEmbed:", e.message);
+  }
+}
+
+// Watcher: envía embed de estado cada vez que detector.js actualiza status.json
+let _statusWatchDebounce = null;
+function watchStatusFile() {
+  try {
+    fsSync.watch(STATUS_FILE, (eventType) => {
+      if (eventType !== "rename" && eventType !== "change") return;
+      clearTimeout(_statusWatchDebounce);
+      _statusWatchDebounce = setTimeout(() => sendStatusEmbed(), 2000);
+    });
+    console.log("[discord] 👁 Watching status.json para auto-embed");
+  } catch (e) {
+    console.warn("[discord] No se pudo iniciar watcher de status.json:", e.message);
   }
 }
 
@@ -897,60 +969,12 @@ app.post("/admin/api/discord/send-status", adminLimiter, adminAuth, async (_req,
   if (!botState.verified) {
     return res.status(400).json({ ok: false, error: "Bot no verificado. Dale a Recargar primero." });
   }
-  const token     = process.env.DISCORD_BOT_TOKEN;
-  const channelId = process.env.DISCORD_STATUS_CHANNEL_ID;
-  if (!channelId) return res.status(400).json({ ok: false, error: "No hay canal de estado configurado" });
-
+  if (!process.env.DISCORD_STATUS_CHANNEL_ID) {
+    return res.status(400).json({ ok: false, error: "No hay canal de estado configurado" });
+  }
   try {
-    const [statusData, appearance] = await Promise.all([readJson(STATUS_FILE), readAppearance()]);
-    const serviceFilter = (process.env.DISCORD_STATUS_SERVICES ?? "").split(",").map(s => s.trim()).filter(Boolean);
-
-    const allServices = [];
-    for (const section of statusData.sections ?? []) {
-      for (const svc of section.services ?? []) {
-        if (!serviceFilter.length || serviceFilter.includes(svc.id)) {
-          allServices.push(svc);
-        }
-      }
-    }
-
-    const allUp     = allServices.every(s => s.status === "up");
-    const someDown  = allServices.some(s => s.status === "down");
-    const globalUp  = allServices.length === 0 || (allServices.filter(s => s.status === "up").length / allServices.length * 100).toFixed(2);
-    const color     = someDown ? 0xef4444 : (allUp ? 0x22c55e : 0xf59e0b);
-    const statusStr = someDown ? "⚠️ Degradado" : (allUp ? "✅ Operacional" : "🔄 Parcial");
-
-    const siteTitle = appearance.siteTitle?.trim() || "del sistema";
-    const embedTitle = `📡 Estado de ${siteTitle}`;
-
-    const fields = allServices.map(svc => {
-      const icon   = svc.status === "up" ? "🟢" : "🔴";
-      const uptime = typeof svc.uptime === "number" ? `${svc.uptime.toFixed(2)}%` : "—";
-      const lat    = svc.latency != null ? `${svc.latency}ms` : "—";
-      return {
-        name:   `${icon} ${svc.name}`,
-        value:  `📈 Uptime: \`${uptime}\`\n⚡ Latencia: \`${lat}\``,
-        inline: true,
-      };
-    });
-
-    const embed = {
-      title: embedTitle,
-      description: `**Uptime Global:** \`${globalUp}%\`\n**Estado:** ${statusStr}\n**Actualización:** <t:${Math.floor(Date.now() / 1000)}:R>`,
-      color,
-      timestamp: new Date().toISOString(),
-      fields,
-    };
-
-    const r = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
-      method: "POST",
-      headers: { "Authorization": `Bot ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ embeds: [embed] }),
-    });
-
-    if (r.ok) return res.json({ ok: true });
-    const err = await r.text();
-    res.status(400).json({ ok: false, error: `Discord ${r.status}: ${err}` });
+    await sendStatusEmbed();
+    res.json({ ok: true });
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
@@ -980,6 +1004,7 @@ app.use((err, _req, res, _next) => {
 
 (async () => {
   await loadEnv();
+  watchStatusFile();
 
   app.listen(PORT, () => {
     console.log(`[Web Server] http://localhost:${PORT}`);
