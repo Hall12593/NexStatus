@@ -248,6 +248,8 @@ async function verifyBotToken(token) {
   }
 }
 
+let _statusMessageId = process.env.DISCORD_STATUS_MESSAGE_ID ?? null;
+
 async function sendStatusEmbed() {
   if (!botState.verified) return;
   const token     = process.env.DISCORD_BOT_TOKEN;
@@ -292,13 +294,36 @@ async function sendStatusEmbed() {
       fields:      chunk,
     }));
 
-    const r = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+    // Intentar editar mensaje existente
+    if (_statusMessageId) {
+      const editRes = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${_statusMessageId}`, {
+        method: "PATCH",
+        headers: { "Authorization": `Bot ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ embeds }),
+      });
+      if (editRes.ok) {
+        console.log("[discord] 📡 Embed de estado actualizado");
+        return;
+      }
+      // Mensaje no existe o no se puede editar — crear nuevo
+      console.warn(`[discord] No se pudo editar mensaje (${editRes.status}), creando nuevo`);
+      _statusMessageId = null;
+    }
+
+    // Crear mensaje nuevo
+    const postRes = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
       method: "POST",
       headers: { "Authorization": `Bot ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({ embeds }),
     });
-    if (!r.ok) console.warn(`[discord] ⚠ status embed: ${r.status} — ${await r.text()}`);
-    else console.log("[discord] 📡 Embed de estado enviado automáticamente");
+    if (postRes.ok) {
+      const msg = await postRes.json();
+      _statusMessageId = msg.id;
+      await writeEnv({ DISCORD_STATUS_MESSAGE_ID: msg.id });
+      console.log(`[discord] 📡 Embed de estado creado: ${msg.id}`);
+    } else {
+      console.warn(`[discord] ⚠ status embed: ${postRes.status} — ${await postRes.text()}`);
+    }
   } catch (e) {
     console.warn("[discord] Error en sendStatusEmbed:", e.message);
   }
@@ -307,16 +332,14 @@ async function sendStatusEmbed() {
 // Watcher: envía embed de estado cada vez que detector.js actualiza status.json
 let _statusWatchDebounce = null;
 function watchStatusFile() {
-  try {
-    fsSync.watch(STATUS_FILE, (eventType) => {
-      if (eventType !== "rename" && eventType !== "change") return;
-      clearTimeout(_statusWatchDebounce);
-      _statusWatchDebounce = setTimeout(() => sendStatusEmbed(), 2000);
-    });
-    console.log("[discord] 👁 Watching status.json para auto-embed");
-  } catch (e) {
-    console.warn("[discord] No se pudo iniciar watcher de status.json:", e.message);
-  }
+  // fsSync.watch pierde el inode tras rename atómico (tmp → file).
+  // watchFile usa polling y siempre apunta al path, no al inode.
+  fsSync.watchFile(STATUS_FILE, { interval: 5000, persistent: false }, (curr, prev) => {
+    if (curr.mtimeMs === prev.mtimeMs) return;
+    clearTimeout(_statusWatchDebounce);
+    _statusWatchDebounce = setTimeout(() => sendStatusEmbed(), 1500);
+  });
+  console.log("[discord] 👁 Watching status.json para auto-embed (polling 5s)");
 }
 
 /* ═══════════════════════════════════════════
@@ -855,6 +878,7 @@ app.get("/admin/api/settings", adminLimiter, adminAuth, async (_req, res) => {
     discordChannelId:       process.env.DISCORD_CHANNEL_ID ?? "",
     discordStatusChannelId: process.env.DISCORD_STATUS_CHANNEL_ID ?? "",
     discordStatusServices:  process.env.DISCORD_STATUS_SERVICES ?? "",
+    discordStatusMessageId: _statusMessageId ?? "",
     botState,
     hasAdminToken:    !!(process.env.ADMIN_TOKEN),
     hasTotpSecret:    !!(process.env.TOTP_SECRET),
@@ -878,7 +902,14 @@ app.put("/admin/api/settings", adminLimiter, adminAuth, async (req, res) => {
 
   const updates = {};
   if (discordChannelId)                              updates.DISCORD_CHANNEL_ID        = discordChannelId;
-  if (discordStatusChannelId !== undefined)          updates.DISCORD_STATUS_CHANNEL_ID = discordStatusChannelId;
+  if (discordStatusChannelId !== undefined) {
+    if (discordStatusChannelId !== process.env.DISCORD_STATUS_CHANNEL_ID) {
+      // Canal cambió — resetear message ID para que cree nuevo mensaje
+      _statusMessageId = null;
+      updates.DISCORD_STATUS_MESSAGE_ID = "";
+    }
+    updates.DISCORD_STATUS_CHANNEL_ID = discordStatusChannelId;
+  }
   if (discordStatusServices   !== undefined)         updates.DISCORD_STATUS_SERVICES   = discordStatusServices;
   if (adminToken)                                    updates.ADMIN_TOKEN               = adminToken;
   if (discordBotToken && !discordBotToken.includes("…")) updates.DISCORD_BOT_TOKEN    = discordBotToken;
@@ -948,20 +979,30 @@ app.post("/admin/api/discord/test", adminLimiter, adminAuth, async (_req, res) =
   if (!botState.verified) {
     return res.status(400).json({ ok: false, error: "Parece que el bot no está configurado, o si lo está, ¿has probado darle al botón de recargar?" });
   }
-  const token     = process.env.DISCORD_BOT_TOKEN;
-  const channelId = process.env.DISCORD_CHANNEL_ID;
-  if (!channelId) return res.status(400).json({ ok: false, error: "No hay canal de alertas configurado" });
-  try {
+  const token          = process.env.DISCORD_BOT_TOKEN;
+  const alertChannelId  = process.env.DISCORD_CHANNEL_ID;
+  const statusChannelId = process.env.DISCORD_STATUS_CHANNEL_ID;
+
+  if (!alertChannelId && !statusChannelId) {
+    return res.status(400).json({ ok: false, error: "No hay ningún canal configurado" });
+  }
+
+  const embed = { title: "✅ Test de conexión", description: "El bot está conectado y funcionando correctamente.", color: 0x22c55e, timestamp: new Date().toISOString() };
+  const sendTo = async (channelId) => {
     const r = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
       method: "POST",
       headers: { "Authorization": `Bot ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ embeds: [{ title: "✅ Test de conexión", description: "El bot está conectado y funcionando correctamente.", color: 0x22c55e, timestamp: new Date().toISOString() }] }),
+      body: JSON.stringify({ embeds: [embed] }),
     });
-    if (r.ok) return res.json({ ok: true });
-    const err = await r.text();
-    res.status(400).json({ ok: false, error: `Discord respondió ${r.status}: ${err}` });
+    if (!r.ok) throw new Error(`Canal ${channelId}: Discord ${r.status} — ${await r.text()}`);
+  };
+
+  try {
+    const targets = [alertChannelId, statusChannelId].filter(Boolean);
+    await Promise.all(targets.map(sendTo));
+    res.json({ ok: true, sent: targets.length });
   } catch (e) {
-    res.status(500).json({ ok: false, error: e.message });
+    res.status(400).json({ ok: false, error: e.message });
   }
 });
 
