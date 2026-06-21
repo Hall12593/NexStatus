@@ -1581,6 +1581,15 @@ function openServiceModal(existing, sIdx, svIdx) {
           <div class="form-hint">URL = solo el dominio (ej: ejemplo.com). Servidor DNS opcional abajo.</div>
           <input class="form-input" id="svc-dns-server" type="text" style="margin-top:8px;" placeholder="Servidor DNS opcional, ej: 1.1.1.1" value="${esc(existing?.dnsServer ?? "")}"/>
         </div>
+        <div class="form-group">
+          <label class="form-label" style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="svc-debug" ${existing?.debug ? "checked" : ""}/> Modo debug (guarda razón detallada de cada caída)
+          </label>
+        </div>
+        <div class="form-group">
+          <button class="btn btn-ghost" type="button" id="svc-test-btn"><i class="fa-solid fa-vial"></i> Probar configuración</button>
+          <div id="svc-test-result" style="margin-top:8px;font-size:13px;"></div>
+        </div>
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Intervalo (segundos)</label>
@@ -1622,6 +1631,7 @@ function openServiceModal(existing, sIdx, svIdx) {
       const keywordMode = overlay.querySelector("#svc-keyword-mode").value;
       const dnsRecordType = overlay.querySelector("#svc-dns-type").value;
       const dnsServer   = overlay.querySelector("#svc-dns-server").value.trim();
+      const debugMode  = overlay.querySelector("#svc-debug").checked;
       const interval   = parseInt(overlay.querySelector("#svc-interval").value) || 60;
       const timeout    = parseInt(overlay.querySelector("#svc-timeout").value) || 10000;
       const headersRaw = overlay.querySelector("#svc-headers").value.trim();
@@ -1645,6 +1655,7 @@ function openServiceModal(existing, sIdx, svIdx) {
         svcObj.dnsRecordType = dnsRecordType;
         if (dnsServer) svcObj.dnsServer = dnsServer;
       }
+      if (debugMode) svcObj.debug = true;
 
       if (isEdit && svIdx !== null) {
         sectionsData[sIdx].services[svIdx] = svcObj;
@@ -1666,6 +1677,34 @@ function openServiceModal(existing, sIdx, svIdx) {
       const dg = overlay2.querySelector("#svc-dns-group");
       if (kg) kg.style.display = sel.value === "keyword" ? "" : "none";
       if (dg) dg.style.display = sel.value === "dns"     ? "" : "none";
+    });
+
+    overlay2.querySelector("#svc-test-btn")?.addEventListener("click", async () => {
+      const out = overlay2.querySelector("#svc-test-result");
+      const testSvc = {
+        url:           overlay2.querySelector("#svc-url").value.trim(),
+        checkType:     overlay2.querySelector("#svc-check-type").value,
+        method:        overlay2.querySelector("#svc-method").value,
+        keyword:       overlay2.querySelector("#svc-keyword").value.trim(),
+        keywordMode:   overlay2.querySelector("#svc-keyword-mode").value,
+        dnsRecordType: overlay2.querySelector("#svc-dns-type").value,
+        dnsServer:     overlay2.querySelector("#svc-dns-server").value.trim() || undefined,
+        timeout:       parseInt(overlay2.querySelector("#svc-timeout").value) || undefined,
+      };
+      if (!testSvc.url) { showToast("URL requerida para probar", "error"); return; }
+
+      out.textContent = "Probando…";
+      try {
+        const r = await api("POST", "/admin/api/test-check", testSvc);
+        const color = r.status === "up" ? "var(--success, #2ecc71)" : "var(--danger, #e74c3c)";
+        let html = `<span style="color:${color};font-weight:600;">${r.status.toUpperCase()}</span>`;
+        html += ` · code: ${r.code ?? "-"} · latency: ${r.latency ?? "-"}ms`;
+        if (r.error) html += ` · error: ${esc(r.error)}`;
+        if (r.debug) html += `<pre style="margin-top:6px;white-space:pre-wrap;font-size:12px;opacity:.8;">${esc(JSON.stringify(r.debug, null, 2))}</pre>`;
+        out.innerHTML = html;
+      } catch {
+        out.textContent = "Error al probar la configuración.";
+      }
     });
   }
 }
@@ -1939,6 +1978,23 @@ function openServiceDrawer(svc, allIncidents) {
     });
   }
   svcDrawerBody.appendChild(incSection);
+
+  // ── Debug (solo si modo debug activo en el servicio) ──
+  if (svc.lastDebug) {
+    const dbgSection = document.createElement("div");
+    dbgSection.className = "svc-drawer-section";
+    const d = svc.lastDebug;
+    dbgSection.innerHTML = `
+      <div class="svc-drawer-section-title">Debug — última razón de check</div>
+      <div class="svc-no-data" style="text-align:left;line-height:1.6;">
+        <div><b>Hora:</b> ${fmt(d.at)}</div>
+        <div><b>Status:</b> ${esc(d.status)} · <b>Code:</b> ${d.code ?? "-"} · <b>Latencia:</b> ${d.latency ?? "-"}ms</div>
+        ${d.error ? `<div><b>Error:</b> ${esc(d.error)}</div>` : ""}
+        ${d.detail ? `<pre style="margin-top:6px;white-space:pre-wrap;font-size:12px;opacity:.85;">${esc(JSON.stringify(d.detail, null, 2))}</pre>` : ""}
+      </div>
+    `;
+    svcDrawerBody.appendChild(dbgSection);
+  }
 
   // Open
   svcDrawer.classList.add("open");
