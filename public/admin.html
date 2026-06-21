@@ -874,18 +874,19 @@
 
 
 <!-- DISCORD SERVICES SELECTOR MODAL -->
-<div class="discord-services-modal-overlay" id="discord-services-modal-overlay"></div>
-<div class="discord-services-modal" id="discord-services-modal" style="display:none;">
-  <div class="discord-services-modal-header">
-    <div class="discord-services-modal-title">Seleccionar servicios para embed</div>
-    <button class="discord-services-modal-close" id="discord-services-modal-close">
-      <i class="fa-solid fa-xmark"></i>
-    </button>
-  </div>
-  <div class="discord-services-modal-body" id="discord-services-modal-body"></div>
-  <div class="discord-services-modal-footer">
-    <button class="btn btn-secondary" id="discord-services-cancel-btn">Cancelar</button>
-    <button class="btn btn-primary" id="discord-services-confirm-btn">Guardar orden</button>
+<div class="discord-services-modal-overlay" id="discord-services-modal-overlay">
+  <div class="discord-services-modal" id="discord-services-modal">
+    <div class="discord-services-modal-header">
+      <div class="discord-services-modal-title">Seleccionar servicios para embed</div>
+      <button class="discord-services-modal-close" id="discord-services-modal-close">
+        <i class="fa-solid fa-xmark"></i>
+      </button>
+    </div>
+    <div class="discord-services-modal-body" id="discord-services-modal-body"></div>
+    <div class="discord-services-modal-footer">
+      <button class="btn btn-secondary" id="discord-services-cancel-btn">Cancelar</button>
+      <button class="btn btn-primary" id="discord-services-confirm-btn">Guardar orden</button>
+    </div>
   </div>
 </div>
 
@@ -1819,16 +1820,12 @@ function updateDiscordServicesSummary() {
 }
 
 function openDiscordServicesSelector() {
-  const modal = document.getElementById("discord-services-modal");
   const overlay = document.getElementById("discord-services-modal-overlay");
-  if (modal) modal.style.display = "flex";
   if (overlay) overlay.classList.add("open");
 }
 
 function closeDiscordServicesSelector() {
-  const modal = document.getElementById("discord-services-modal");
   const overlay = document.getElementById("discord-services-modal-overlay");
-  if (modal) modal.style.display = "none";
   if (overlay) overlay.classList.remove("open");
   renderDiscordServiceCheckboxes(_allServicesForSelector, _discordStatusServicesSelected);
 }
