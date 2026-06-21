@@ -1,48 +1,48 @@
 /**
- * Uptime Monitor – Nexora v5.2
+ * Uptime Monitor – Nexora v5.1
  * ─────────────────────────────────────────
- *  • Per-service check intervals (checkInterval)
- *  • Types: http, tcp, keyword
+ *  • Intervalos por servicio (checkInterval)
+ *  • Tipos: http, tcp, udp, ping, dns, keyword
  *  • Cloudflare bypass detection
- *  • 100% uptime for new services
- *  • Cleans stats from removed services
- *  • Discord bot notification
- *  • Fixed timezone: UTC-6
- *  • If cloudflare-dns and google-dns fail → no internet → ignore downtime
- *  • Delay between embeds when multiple services go down at once
- *  • Embeds updated when admin adds comment
- *  • Config reload on demand via FORCE_CONFIG_RELOAD file
+ *  • Uptime 100% para servicios nuevos
+ *  • Limpia stats de servicios eliminados
+ *  • Notificación por bot de Discord
+ *  • Zona horaria: UTC-6 fija
+ *  • Si caen cloudflare-dns y google-dns → no internet → ignorar caídas
+ *  • Delay entre embeds cuando caen múltiples servicios a la vez
+ *  • Embeds actualizados cuando admin añade comentario
  */
 
 import fs from "fs/promises";
 import path from "path";
 import net from "net";
+import dns from "dns/promises";
+import dgram from "dgram";
+import { exec } from "child_process";
 import { setTimeout as sleep } from "timers/promises";
-import { info, success, error, warn } from "./console.js";
 
 /* ═══════════════════════════════════════════
-   BASE CONFIG
+   CONFIG BASE
 ═══════════════════════════════════════════ */
 
 const BASE_INTERVAL_MS  = 60_000;
 const TIMEOUT_MS        = 10_000;
 const TIMEZONE_OFFSET   = -6;
 const FORCE_CHECK_FILE  = path.resolve(process.cwd(), "data", "force_check");
-const FORCE_CONFIG_RELOAD_FILE = path.resolve(process.cwd(), "data", "force_config_reload");
-const EMBED_DELAY_MS    = 1_500; // delay between embeds when multiple services go down
+const EMBED_DELAY_MS    = 1_500; // delay entre embeds cuando caen múltiples servicios
 
 const DATA_DIR      = path.resolve(process.cwd(), "data");
 const STATUS_FILE   = path.join(DATA_DIR, "status.json");
 const SERVICES_FILE = path.join(DATA_DIR, "services.json");
 
-// DNS servers to check for internet connectivity
+// DNS de referencia para detectar pérdida de internet del servidor
 const INTERNET_CHECK_HOSTS = [
   { host: "1.1.1.1",   port: 53, name: "Cloudflare DNS" },
   { host: "8.8.8.8",   port: 53, name: "Google DNS" },
 ];
 
 /* ═══════════════════════════════════════════
-   ENV (.env loaded manually if exists)
+   ENV (.env cargado manualmente si existe)
 ═══════════════════════════════════════════ */
 
 async function loadEnv() {
@@ -58,7 +58,7 @@ async function loadEnv() {
       if (key && !(key in process.env)) process.env[key] = val;
     }
   } catch {
-    // .env does not exist, using system environment variables
+    // .env no existe, se usan process.env del sistema
   }
 }
 
@@ -106,12 +106,12 @@ async function discordRequest(method, dpath, body) {
     if (res.status === 204) return true;
     if (!res.ok) {
       const err = await res.text();
-      warn(`[discord] ${method} ${dpath} → ${res.status}: ${err}`);
+      console.warn(`[discord] ${method} ${dpath} → ${res.status}: ${err}`);
       return null;
     }
     return await res.json();
   } catch (e) {
-    warn("[discord] Network error:", e.message);
+    console.warn("[discord] Error de red:", e.message);
     return null;
   }
 }
@@ -130,24 +130,24 @@ async function editDiscordMessage(messageId, embeds) {
   return result !== null;
 }
 
-/** Verify bot connection by sending a request to /users/@me */
+/** Verifica conexión al bot enviando una petición a /users/@me */
 async function verifyBotConnection() {
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) {
-    warn("[discord] ⚠ DISCORD_BOT_TOKEN not configured — notifications disabled");
+    console.warn("[discord] ⚠ DISCORD_BOT_TOKEN no configurado — notificaciones desactivadas");
     return false;
   }
   const data = await discordRequest("GET", "/users/@me", null);
   if (data && data.username) {
-    success(`[discord] ✅ Bot connected: ${data.username}#${data.discriminator ?? "0"} (ID: ${data.id})`);
+    console.log(`[discord] ✅ Bot conectado: ${data.username}#${data.discriminator ?? "0"} (ID: ${data.id})`);
     return true;
   }
-  warn("[discord] ⚠ Could not verify bot connection (invalid token or missing permissions)");
+  console.warn("[discord] ⚠ No se pudo verificar conexión al bot (token inválido o sin permisos)");
   return false;
 }
 
 /* ═══════════════════════════════════════════
-   SERVER INTERNET CONNECTIVITY CHECK
+   DETECCIÓN DE INTERNET DEL SERVIDOR
 ═══════════════════════════════════════════ */
 
 async function checkInternet() {
@@ -156,26 +156,26 @@ async function checkInternet() {
       tcpPing(host, port).then(r => r.status === "up")
     )
   );
-  // If ALL DNS checks fail → no internet
+  // Si TODOS caen → sin internet
   const hasInternet = results.some(ok => ok);
   if (!hasInternet) {
-    warn("[internet] ⚠ All reference DNS servers not responding — assuming server internet loss. Services will not be marked as down.");
+    console.warn("[internet] ⚠ Todos los DNS de referencia no responden — asumiendo pérdida de internet del servidor. No se marcarán servicios como down.");
   }
   return hasInternet;
 }
 
 /* ═══════════════════════════════════════════
-   INCIDENT MANAGEMENT
+   GESTIÓN DE INCIDENTES
 ═══════════════════════════════════════════ */
 
-// Number of stable checks required to confirm resolution
+// Número de checks estables requeridos para confirmar resolución
 const STABLE_CHECKS_REQUIRED = 5;
-// Confirmatory checks in same cycle before opening incident
-// Flow: initial failure → wait 5s → check 1 → wait 5s → check 2 → if both DOWN → downtime confirmed
+// Checks confirmatorios en el mismo ciclo antes de abrir incidente
+// Flujo: fallo inicial → espera 5s → check 1 → espera 5s → check 2 → si ambos DOWN → caída confirmada
 const DOWN_CONFIRM_CHECKS  = 2;
-const DOWN_CONFIRM_DELAY   = 5_000; // ms between each confirmatory check
+const DOWN_CONFIRM_DELAY   = 5_000; // ms entre cada check confirmatorio
 
-// Queue of pending embeds to avoid flood (delay between each one)
+// Cola de embeds pendientes para evitar flood (delay entre cada uno)
 let _embedSendQueue = Promise.resolve();
 
 function queueEmbed(fn) {
@@ -188,29 +188,29 @@ function queueEmbed(fn) {
 
 function buildDownEmbed(service, incidentId, now) {
   return {
-    title: `🔴 Downtime detected — ${service.name}`,
-    description: `Service **${service.name}** is not responding.\nInvestigating the issue.`,
+    title: `🔴 Caída detectada — ${service.name}`,
+    description: `El servicio **${service.name}** no responde.\nInvestigando el problema.`,
     color: 0xef4444,
     timestamp: now,
     footer: { text: `Nexora Status • ID: ${incidentId}` },
     fields: [
-      { name: "Service", value: service.name,      inline: true },
-      { name: "Status",   value: "🔍 Investigating", inline: true },
+      { name: "Servicio", value: service.name,      inline: true },
+      { name: "Estado",   value: "🔍 Investigando", inline: true },
     ],
   };
 }
 
 function buildMonitoringEmbed(service, incident, now, extraFields = []) {
   return {
-    title: `🟡 Monitoring — ${service.name}`,
-    description: `Service **${service.name}** is responding again.\nVerifying stability before marking as resolved.`,
+    title: `🟡 Monitoreando — ${service.name}`,
+    description: `El servicio **${service.name}** volvió a responder.\nVerificando estabilidad antes de marcar como resuelto.`,
     color: 0xf59e0b,
     timestamp: now,
     footer: { text: `Nexora Status • ID: ${incident.id}` },
     fields: [
-      { name: "Service", value: service.name,      inline: true },
-      { name: "Status",   value: "🟡 Monitoring", inline: true },
-      { name: "Duration", value: formatDuration(incident.createdAt, now), inline: false },
+      { name: "Servicio", value: service.name,      inline: true },
+      { name: "Estado",   value: "🟡 Monitoreando", inline: true },
+      { name: "Duración", value: formatDuration(incident.createdAt, now), inline: false },
       ...extraFields,
     ],
   };
@@ -218,26 +218,26 @@ function buildMonitoringEmbed(service, incident, now, extraFields = []) {
 
 function buildResolvedEmbed(service, incident, now) {
   return {
-    title: `🟢 Resolved — ${service.name}`,
-    description: `Service **${service.name}** has been confirmed as stable and operational.`,
+    title: `🟢 Resuelto — ${service.name}`,
+    description: `El servicio **${service.name}** ha sido confirmado como estable y operativo.`,
     color: 0x22c55e,
     timestamp: now,
     footer: { text: `Nexora Status • ID: ${incident.id}` },
     fields: [
-      { name: "Service",      value: service.name,                          inline: true },
-      { name: "Status",       value: "✅ Operational",                      inline: true },
-      { name: "Affected time", value: formatDuration(incident.createdAt, now), inline: false },
+      { name: "Servicio",        value: service.name,                          inline: true },
+      { name: "Estado",          value: "✅ Operativo",                        inline: true },
+      { name: "Tiempo afectado", value: formatDuration(incident.createdAt, now), inline: false },
     ],
   };
 }
 
 function buildUpdateEmbed(service, incident, update) {
   const statusLabels = {
-    investigating: "🔍 Investigating",
-    identified:    "🔎 Identified",
-    monitoring:    "🟡 Monitoring",
-    resolved:      "✅ Resolved",
-    maintenance:   "🔧 Maintenance",
+    investigating: "🔍 Investigando",
+    identified:    "🔎 Identificado",
+    monitoring:    "🟡 Monitoreando",
+    resolved:      "✅ Resuelto",
+    maintenance:   "🔧 Mantenimiento",
   };
   const colors = {
     investigating: 0xef4444,
@@ -248,17 +248,17 @@ function buildUpdateEmbed(service, incident, update) {
   };
 
   const fields = [
-    { name: "Service", value: service?.name ?? incident.serviceName ?? "—", inline: true },
-    { name: "Status",   value: statusLabels[update.status] ?? update.status,  inline: true },
+    { name: "Servicio", value: service?.name ?? incident.serviceName ?? "—", inline: true },
+    { name: "Estado",   value: statusLabels[update.status] ?? update.status,  inline: true },
   ];
 
   if (incident.updates?.length > 1) {
-    fields.push({ name: "Duration", value: formatDuration(incident.createdAt, update.at), inline: false });
+    fields.push({ name: "Duración", value: formatDuration(incident.createdAt, update.at), inline: false });
   }
 
   return {
-    title: `📋 Update — ${incident.title}`,
-    description: update.message || "No message.",
+    title: `📋 Actualización — ${incident.title}`,
+    description: update.message || "Sin mensaje.",
     color: colors[update.status] ?? 0x6b7280,
     timestamp: update.at,
     footer: { text: `Nexora Status • ID: ${incident.id}` },
@@ -267,17 +267,17 @@ function buildUpdateEmbed(service, incident, update) {
 }
 
 /**
- * Performs DOWN_CONFIRM_CHECKS additional checks with DOWN_CONFIRM_DELAY ms separation
- * to confirm that the service is really down before opening an incident.
- * Returns true if all confirmatory checks are also DOWN.
+ * Realiza DOWN_CONFIRM_CHECKS checks adicionales con DOWN_CONFIRM_DELAY ms de separación
+ * para confirmar que el servicio realmente está caído antes de abrir un incidente.
+ * Retorna true si todos los checks confirmatorios también son DOWN.
  */
 async function confirmDown(service) {
   for (let i = 1; i <= DOWN_CONFIRM_CHECKS; i++) {
     await sleep(DOWN_CONFIRM_DELAY);
     const result = await pingService(service);
-    info(`[incidents] 🔎 ${service.id} — Confirmatory check ${i}/${DOWN_CONFIRM_CHECKS}: ${result.status}`);
+    console.log(`[incidentes] 🔎 ${service.id} — Check confirmatorio ${i}/${DOWN_CONFIRM_CHECKS}: ${result.status}`);
     if (result.status === "up") {
-      success(`[incidents] ✅ ${service.id} — False positive discarded at confirmatory check ${i}`);
+      console.log(`[incidentes] ✅ ${service.id} — Falso positivo descartado en check confirmatorio ${i}`);
       return false;
     }
   }
@@ -290,27 +290,27 @@ async function handleServiceDown(store, service) {
 
   if (store.incidents.find(i => i.serviceId === service.id && !i.resolvedAt)) return;
 
-  // ── Confirmatory checks: 2 additional pings with 5s separation ──
-  // If any responds UP → false positive, do not open incident.
-  info(`[incidents] ⚠ ${service.id} — Downtime detected. Running ${DOWN_CONFIRM_CHECKS} confirmatory checks (each ${DOWN_CONFIRM_DELAY / 1000}s)…`);
+  // ── Checks confirmatorios: 2 pings adicionales con 5s de separación ──────
+  // Si alguno responde UP → falso positivo, no abrir incidente.
+  console.log(`[incidentes] ⚠ ${service.id} — Caída detectada. Ejecutando ${DOWN_CONFIRM_CHECKS} checks confirmatorios (cada ${DOWN_CONFIRM_DELAY / 1000}s)…`);
   const confirmed = await confirmDown(service);
-  if (!confirmed) return false; // false positive — service came back in confirmatory checks
-  success(`[incidents] 🔴 ${service.id} — Downtime confirmed after ${DOWN_CONFIRM_CHECKS} checks. Opening incident.`);
+  if (!confirmed) return false; // falso positivo — servicio volvió en los confirmatorios
+  console.log(`[incidentes] 🔴 ${service.id} — Caída confirmada tras ${DOWN_CONFIRM_CHECKS} checks. Abriendo incidente.`);
 
   const now        = new Date().toISOString();
   const incidentId = `inc-${Date.now()}`;
 
   const incident = {
     id: incidentId, serviceId: service.id, serviceName: service.name,
-    title: `Interruption — ${service.name}`, status: "investigating",
+    title: `Interrupción — ${service.name}`, status: "investigating",
     automatic: true, createdAt: now, resolvedAt: null, discordMessageId: null,
-    updates: [{ at: now, status: "investigating", message: "Downtime detected automatically. Investigating." }],
+    updates: [{ at: now, status: "investigating", message: "Caída detectada automáticamente. Investigando." }],
   };
 
   store.incidents.push(incident);
   store.announcements.push({
     id: `ann-${incidentId}`, type: "incident", title: incident.title,
-    body: "We are investigating the issue. Updates will be published shortly.",
+    body: "Estamos investigando el problema. Se publicarán actualizaciones en breve.",
     incidentId, createdAt: now, endsAt: null,
   });
 
@@ -320,19 +320,19 @@ async function handleServiceDown(store, service) {
     const msgId = await sendDiscordMessage([embed]);
     if (msgId) {
       incident.discordMessageId = msgId;
-      // Persist messageId in JSON immediately
+      // Persistir el messageId en el JSON inmediatamente
       try {
         const fresh = JSON.parse(await fs.readFile(STATUS_FILE, "utf8"));
         const inc = fresh.incidents?.find(i => i.id === incidentId);
         if (inc) { inc.discordMessageId = msgId; await saveStatus(fresh); }
       } catch {}
-      info(`[discord] 📨 Embed sent for ${service.id} (msg: ${msgId})`);
+      console.log(`[discord] 📨 Embed enviado para ${service.id} (msg: ${msgId})`);
     } else {
-      warn(`[discord] ⚠ Could not send embed for ${service.id}`);
+      console.warn(`[discord] ⚠ No se pudo enviar embed para ${service.id}`);
     }
   });
 
-  success(`[incidents] 🔴 ${service.id} — Incident created: ${incidentId}`);
+  console.log(`[incidentes] 🔴 ${service.id} — Incidente creado: ${incidentId}`);
 }
 
 async function handleServiceMonitoring(store, service) {
@@ -345,7 +345,7 @@ async function handleServiceMonitoring(store, service) {
   incident.status = "monitoring";
   incident.updates.push({
     at: now, status: "monitoring",
-    message: `Service responding again. Monitoring stability (${STABLE_CHECKS_REQUIRED} confirmatory checks).`,
+    message: `Servicio respondiendo de nuevo. Monitoreando estabilidad (${STABLE_CHECKS_REQUIRED} checks confirmatorios).`,
   });
 
   const embed = buildMonitoringEmbed(service, incident, now);
@@ -353,7 +353,7 @@ async function handleServiceMonitoring(store, service) {
     await editDiscordMessage(incident.discordMessageId, [embed]);
   });
 
-  info(`[incidents] 🟡 ${service.id} — Monitoring stability: ${incident.id}`);
+  console.log(`[incidentes] 🟡 ${service.id} — Monitoreando estabilidad: ${incident.id}`);
 }
 
 async function handleStableCheck(store, service) {
@@ -363,13 +363,13 @@ async function handleStableCheck(store, service) {
 
   incident.stableCount = (incident.stableCount ?? 0) + 1;
   const count = incident.stableCount;
-  info(`[incidents] 🟡 ${service.id} — Stable check ${count}/${STABLE_CHECKS_REQUIRED}`);
+  console.log(`[incidentes] 🟡 ${service.id} — Check estable ${count}/${STABLE_CHECKS_REQUIRED}`);
 
   if (count >= STABLE_CHECKS_REQUIRED) {
     const now = new Date().toISOString();
     incident.resolvedAt = now;
     incident.status     = "resolved";
-    incident.updates.push({ at: now, status: "resolved", message: "Stability confirmed. Incident automatically resolved." });
+    incident.updates.push({ at: now, status: "resolved", message: "Estabilidad confirmada. Incidente resuelto automáticamente." });
 
     store.announcements = (store.announcements ?? []).filter(a => a.incidentId !== incident.id);
 
@@ -378,7 +378,7 @@ async function handleStableCheck(store, service) {
       await editDiscordMessage(incident.discordMessageId, [embed]);
     });
 
-    success(`[incidents] 🟢 ${service.id} — Resolved after ${STABLE_CHECKS_REQUIRED} stable checks: ${incident.id}`);
+    console.log(`[incidentes] 🟢 ${service.id} — Resuelto tras ${STABLE_CHECKS_REQUIRED} checks estables: ${incident.id}`);
   }
 }
 
@@ -391,17 +391,17 @@ async function handleServiceRecovered(store, service) {
 }
 
 /**
- * Called by server.js when an admin adds a comment to an incident.
- * Edits the existing Discord embed.
+ * Llamado por server.js cuando un admin añade un comentario a un incidente.
+ * Edita el embed de Discord existente.
  */
 export async function notifyIncidentUpdate(incident, update, serviceName) {
   if (!incident.discordMessageId) return;
   const embed = buildUpdateEmbed({ name: serviceName ?? incident.serviceName }, incident, update);
   const ok = await editDiscordMessage(incident.discordMessageId, [embed]);
   if (ok) {
-    info(`[discord] ✏ Embed edited by admin comment — incident: ${incident.id}`);
+    console.log(`[discord] ✏ Embed editado por comentario admin — incidente: ${incident.id}`);
   } else {
-    warn(`[discord] ⚠ Could not edit embed for incident: ${incident.id}`);
+    console.warn(`[discord] ⚠ No se pudo editar embed para incidente: ${incident.id}`);
   }
 }
 
@@ -414,7 +414,7 @@ function formatDuration(fromIso, toIso) {
 }
 
 /* ═══════════════════════════════════════════
-   TIMEZONE (UTC-6)
+   TIEMPO (UTC-6)
 ═══════════════════════════════════════════ */
 
 function getLocalDate() {
@@ -436,11 +436,11 @@ function getDateFromHourKey(hourKey) { return hourKey.split("T")[0]; }
 function pad(n) { return String(n).padStart(2, "0"); }
 
 /* ═══════════════════════════════════════════
-   UPTIME — no rounding, exactly 3 decimals
+   UPTIME — sin redondeo, 3 decimales exactos
 ═══════════════════════════════════════════ */
 
 function precise(value) {
-  // Returns number with exactly 3 decimals, no additional rounding
+  // Devuelve número con exactamente 3 decimales, sin redondeo adicional
   return Math.trunc(value * 1000) / 1000;
 }
 
@@ -473,55 +473,7 @@ async function saveStatus(data) {
 }
 
 /* ═══════════════════════════════════════════
-   KEYWORD DETECTION
-═══════════════════════════════════════════ */
-
-/**
- * Check if a keyword pattern matches the response body.
- * Supports multiple search modes:
- *  - "contains": simple substring search (case-insensitive)
- *  - "exact": exact match (case-sensitive)
- *  - "regex": JavaScript regex pattern
- *  - "json": JSON path search (if response is valid JSON)
- * 
- * Default mode: "contains"
- */
-function matchesKeyword(responseBody, keyword, mode = "contains") {
-  if (!keyword || !responseBody) return false;
-
-  const bodyStr = String(responseBody).trim();
-
-  switch (mode) {
-    case "exact":
-      return bodyStr === keyword;
-
-    case "regex":
-      try {
-        const regex = new RegExp(keyword, "i");
-        return regex.test(bodyStr);
-      } catch {
-        warn(`[keyword] Invalid regex pattern: ${keyword}`);
-        return false;
-      }
-
-    case "json":
-      try {
-        const json = JSON.parse(bodyStr);
-        // Simple JSON path search: look for the keyword in stringified JSON
-        return JSON.stringify(json).includes(keyword);
-      } catch {
-        // Not valid JSON, fall back to contains
-        return bodyStr.toLowerCase().includes(keyword.toLowerCase());
-      }
-
-    case "contains":
-    default:
-      return bodyStr.toLowerCase().includes(keyword.toLowerCase());
-  }
-}
-
-/* ═══════════════════════════════════════════
-   PING – supports http, tcp, keyword
+   PING – soporta http, tcp, keyword
 ═══════════════════════════════════════════ */
 
 const CLOUDFLARE_INDICATORS = [
@@ -549,6 +501,23 @@ async function pingService(service) {
     return tcpPing(host, Number(port));
   }
 
+  if (checkType === "udp") {
+    const urlPart = service.url.replace(/^udp:\/\//, "");
+    const [host, port] = urlPart.split(":");
+    if (!host || !port) return { status: "down", code: 0, latency: null, error: "invalid_address" };
+    return udpPing(host, Number(port));
+  }
+
+  if (checkType === "ping") {
+    const host = service.url.replace(/^ping:\/\//, "");
+    return icmpPing(host);
+  }
+
+  if (checkType === "dns") {
+    const host = service.url.replace(/^dns:\/\//, "");
+    return dnsPing(host, service.dnsRecordType ?? "A", service.dnsServer ?? null);
+  }
+
   if (service.url.startsWith("http://") || service.url.startsWith("https://")) {
     const controller = new AbortController();
     const timer      = setTimeout(() => controller.abort(), service.timeout ?? TIMEOUT_MS);
@@ -564,9 +533,9 @@ async function pingService(service) {
 
       if (checkType === "keyword" && service.keyword) {
         const body = await res.text();
-        const keywordMode = service.keywordMode ?? "contains";
-        const found = matchesKeyword(body, service.keyword, keywordMode);
-        return { status: found ? "up" : "down", code: res.status, latency, error: found ? null : "keyword_not_found" };
+        const mode  = service.keywordMode === "exact" ? "exact" : "contains";
+        const match = mode === "exact" ? body.trim() === service.keyword : body.includes(service.keyword);
+        return { status: match ? "up" : "down", code: res.status, latency, error: match ? null : "keyword_not_found" };
       }
 
       if (!res.ok) {
@@ -617,19 +586,69 @@ function tcpPing(host, port) {
   });
 }
 
+// UDP: no hay "connect" real, se considera up si el socket puede enviar sin ECONNREFUSED/error inmediato.
+function udpPing(host, port) {
+  return new Promise(resolve => {
+    const start  = Date.now();
+    const socket = dgram.createSocket("udp4");
+    const timer  = setTimeout(() => { socket.close(); resolve({ status: "down", code: 0, latency: null, error: "timeout" }); }, TIMEOUT_MS);
+
+    socket.once("error", (err) => {
+      clearTimeout(timer);
+      socket.close();
+      resolve({ status: "down", code: 0, latency: null, error: err.code === "ECONNREFUSED" ? "refused" : "network" });
+    });
+
+    socket.send(Buffer.from("ping"), port, host, (err) => {
+      if (err) return; // manejado por "error"
+      clearTimeout(timer);
+      socket.close();
+      resolve({ status: "up", code: 1, latency: Date.now() - start });
+    });
+  });
+}
+
+// ICMP requiere privilegios raw socket → se usa binario "ping" del sistema.
+function icmpPing(host) {
+  return new Promise(resolve => {
+    const start   = Date.now();
+    const isWin   = process.platform === "win32";
+    const cmd     = isWin ? `ping -n 1 -w ${TIMEOUT_MS} ${host}` : `ping -c 1 -W ${Math.ceil(TIMEOUT_MS / 1000)} ${host}`;
+    exec(cmd, { timeout: TIMEOUT_MS + 1000 }, (err) => {
+      if (err) return resolve({ status: "down", code: 0, latency: null, error: "unreachable" });
+      resolve({ status: "up", code: 1, latency: Date.now() - start });
+    });
+  });
+}
+
+function dnsPing(host, recordType = "A", server = null) {
+  return new Promise(async resolve => {
+    const start    = Date.now();
+    const resolver = new dns.Resolver();
+    if (server) resolver.setServers([server]);
+    const timer = setTimeout(() => resolve({ status: "down", code: 0, latency: null, error: "timeout" }), TIMEOUT_MS);
+    try {
+      await resolver.resolve(host, recordType);
+      clearTimeout(timer);
+      resolve({ status: "up", code: 1, latency: Date.now() - start });
+    } catch {
+      clearTimeout(timer);
+      resolve({ status: "down", code: 0, latency: null, error: "resolve_failed" });
+    }
+  });
+}
+
 /* ═══════════════════════════════════════════
-   MAIN LOOP
+   CICLO PRINCIPAL
 ═══════════════════════════════════════════ */
 
 const nextCheckAt = {};
-let lastConfigReloadAt = 0;
-const CONFIG_RELOAD_INTERVAL_MS = 30_000; // Check for config reload request every 30s
 
 async function runCheck(sections, forceAll = false) {
-  // Before checking services, verify server internet connectivity
+  // Antes de chequear servicios, verificar conectividad a internet
   const hasInternet = await checkInternet();
   if (!hasInternet) {
-    // No internet → do nothing, wait for next cycle
+    // Sin internet → no hacer nada, esperar próximo ciclo
     return;
   }
 
@@ -650,7 +669,7 @@ async function runCheck(sections, forceAll = false) {
   for (const existingId of Object.keys(store.services)) {
     if (!activeIds.has(existingId)) {
       delete store.services[existingId];
-      info(`[uptime] 🗑 Service removed from stats: ${existingId}`);
+      console.log(`[uptime] 🗑 Servicio eliminado de stats: ${existingId}`);
     }
   }
 
@@ -672,16 +691,16 @@ async function runCheck(sections, forceAll = false) {
 
     nextCheckAt[service.id] = now + intervalMs;
 
-    /* ── Maintenance: if service is under maintenance, skip ping and logging ── */
+    /* ── Mantenimiento: si el servicio está en mantenimiento, omitir ping y registro ── */
     const nowIso = new Date().toISOString();
     const isUnderMaintenance = service.maintenance === true ||
-      // Open incident with "maintenance" status for this service
+      // Incidente con status "maintenance" abierto para este servicio
       (store.incidents ?? []).some(i =>
         i.serviceId === service.id &&
         i.status === "maintenance" &&
         !i.resolvedAt
       ) ||
-      // Maintenance announcement linked to service or incident
+      // Announcement de mantenimiento con serviceId directo o vía incidente vinculado
       (store.announcements ?? []).some(a => {
         if (a.type !== "maintenance") return false;
         if (a.endsAt && a.endsAt <= nowIso) return false;
@@ -694,7 +713,7 @@ async function runCheck(sections, forceAll = false) {
       });
 
     if (isUnderMaintenance) {
-      // Update only service metadata, without recording checks or opening incidents
+      // Actualizar solo metadata del servicio, sin registrar checks ni abrir incidentes
       store.services[service.id] ??= {
         id: service.id, name: service.name, sectionId: service.sectionId,
         icon: service.icon ?? null, status: "maintenance",
@@ -705,7 +724,7 @@ async function runCheck(sections, forceAll = false) {
       msvc.name      = service.name;
       msvc.status    = "maintenance";
       if (service.icon) msvc.icon = service.icon;
-      info(`[uptime] 🔧 ${service.id} — Under maintenance, skipping check logging`);
+      console.log(`[uptime] 🔧 ${service.id} — En mantenimiento, omitiendo registro de check`);
       continue;
     }
 
@@ -729,11 +748,10 @@ async function runCheck(sections, forceAll = false) {
     svc.name       = service.name;
     svc.checkType  = service.checkType ?? "http";
     svc.keyword    = service.keyword ?? null;
-    svc.keywordMode = service.keywordMode ?? "contains";
     svc.timeout    = service.timeout ?? null;
     if (service.icon) svc.icon = service.icon;
 
-    /* ── Current hour ── */
+    /* ── Hora actual ── */
     if (!svc.currentHour || svc.currentHour.hour !== currentHourKey) {
       if (svc.currentHour) {
         const old     = svc.currentHour;
@@ -748,7 +766,7 @@ async function runCheck(sections, forceAll = false) {
 
         svc.hourlyHistory ??= [];
         svc.hourlyHistory.push({ hour: old.hour, onlineper, checks: old.checks.length, avgLatency });
-        info(`[${service.id}] Hour ${old.hour} → ${onlineper}% uptime, ${avgLatency ?? "—"} ms`);
+        console.log(`[${service.id}] Hora ${old.hour} → ${onlineper}% uptime, ${avgLatency ?? "—"} ms`);
       }
       svc.currentHour = { hour: currentHourKey, startedAt: timestamp, checks: [] };
     }
@@ -757,7 +775,7 @@ async function runCheck(sections, forceAll = false) {
     svc.currentHour.checks  = svc.currentHour.checks.slice(-60);
     svc.hourlyHistory        = (svc.hourlyHistory ?? []).slice(-48);
 
-    /* ── Daily history ── */
+    /* ── Historial diario ── */
     svc.dailyHistory ??= [];
     const hoursByDate = {};
     for (const h of svc.hourlyHistory) {
@@ -793,11 +811,11 @@ async function runCheck(sections, forceAll = false) {
       .sort((a, b) => new Date(a.date) - new Date(b.date))
       .slice(-30);
 
-    /* ── Current status ── */
+    /* ── Estado actual ── */
     const prevStatus = svc.status;
     const recent     = svc.currentHour.checks.slice(-10);
     const ups        = recent.filter(c => c.status === "up").length;
-    const newStatus  = isNew ? "up" : result.status;
+    const newStatus  = isNew ? "up" : (ups > recent.length / 2 ? "up" : "down");
 
     const latencies  = recent.filter(c => c.latency != null).map(c => c.latency);
     const avgLatency = latencies.length > 0
@@ -822,29 +840,28 @@ async function runCheck(sections, forceAll = false) {
     if (!isNew && prevStatus) {
       if (result.status === "down") {
         if (!hasOpenIncident) {
-          // handleServiceDown performs confirmatory checks internally (2 × 5s)
+          // handleServiceDown hace checks confirmatorios internamente (2 × 5s)
           const opened = await handleServiceDown(store, service);
           if (opened === false) {
-            // False positive — correct the already-recorded check to "up" and revert status
+            // Falso positivo — corregir el check ya registrado a "up"
             const last = svc.currentHour.checks[svc.currentHour.checks.length - 1];
             if (last && last.status === "down") last.status = "up";
-            svc.status = prevStatus ?? "up";
           }
         } else if (inMonitoring) {
           const inc = store.incidents.find(i => i.serviceId === service.id && !i.resolvedAt);
           if (inc && (inc.stableCount ?? 0) > 0) {
             inc.stableCount = 0;
-            success(`[incidents] 🔴 ${service.id} — Fell back down in monitoring, restarting count`);
+            console.log(`[incidentes] 🔴 ${service.id} — Volvió a caer en monitoring, reiniciando conteo`);
           }
         }
-        // If inMaintenance: ignore downtime, maintenance already covers status
+        // Si inMaintenance: ignorar caída, el mantenimiento ya cubre el estado
       } else {
         if (hasOpenIncident && !inMonitoring && !inMaintenance) {
           await handleServiceRecovered(store, service);
         } else if (inMonitoring) {
           await handleStableCheck(store, service);
         }
-        // If inMaintenance: ignore recovery, admin closes incident manually
+        // Si inMaintenance: ignorar recuperación, el incidente lo cierra el admin manualmente
       }
     }
   }
@@ -861,7 +878,7 @@ async function runCheck(sections, forceAll = false) {
   store.sections    = sections.map(s => ({ id: s.id, name: s.name }));
 
   await saveStatus(store);
-  success(`[uptime] ✓ Check completed — Total online: ${store.totalonline}%`);
+  console.log(`[uptime] ✓ Check completado — Total online: ${store.totalonline}%`);
 }
 
 /* ═══════════════════════════════════════════
@@ -871,28 +888,26 @@ async function runCheck(sections, forceAll = false) {
 (async function start() {
   await loadEnv();
 
+  const sections = await loadSections();
   const now      = getLocalDate();
   const tzStr    = TIMEZONE_OFFSET >= 0 ? `UTC+${TIMEZONE_OFFSET}` : `UTC${TIMEZONE_OFFSET}`;
 
-  info("╔══════════════════════════════════════════════════════════════════╗");
-  info("║   NEXORA UPTIME MONITOR v5.3 – CONFIRM CHECKS + CONFIG RELOAD   ║");
-  info("╠══════════════════════════════════════════════════════════════════╣");
-  info(`║  • Base interval:     every 1 minute (per-service configurable) ║`);
-  info(`║  • Confirm checks:    2 pings × 5s before opening incident      ║`);
-  info(`║  • Config reload:     every 30s (FORCE_CONFIG_RELOAD file)     ║`);
-  info(`║  • Keyword detection: contains, exact, regex, json modes      ║`);
-  info(`║  • Timezone:          ${tzStr.padEnd(45)}║`);
-  info(`║  • Local time:        ${now.toISOString().replace("T"," ").substring(0,19).padEnd(45)}║`);
-  info(`║  • Config file:       data/services.json                       ║`);
-  info("╚══════════════════════════════════════════════════════════════════╝\n");
+  console.log("╔══════════════════════════════════════════════════════════════════╗");
+  console.log("║      NEXORA UPTIME MONITOR v5.2 – CONFIRM CHECKS + INTERVALS    ║");
+  console.log("╠══════════════════════════════════════════════════════════════════╣");
+  console.log(`║  • Base interval:   cada 1 minuto (por servicio configurable)   ║`);
+  console.log(`║  • Confirm checks:  2 pings × 5s antes de abrir incidente       ║`);
+  console.log(`║  • Zona horaria:    ${tzStr.padEnd(47)}║`);
+  console.log(`║  • Hora local:      ${now.toISOString().replace("T"," ").substring(0,19).padEnd(47)}║`);
+  console.log(`║  • Config:          data/services.json                          ║`);
+  console.log("╚══════════════════════════════════════════════════════════════════╝\n");
 
   await ensureStorage();
 
-  // Verify Discord bot connection at startup
+  // Verificar conexión al bot de Discord al inicio
   await verifyBotConnection();
 
   let lastCheckAt = 0;
-  let currentSections = await loadSections();
 
   while (true) {
     await sleep(5_000);
@@ -903,33 +918,12 @@ async function runCheck(sections, forceAll = false) {
       await fs.access(FORCE_CHECK_FILE);
       await fs.unlink(FORCE_CHECK_FILE);
       forceAll = true;
-      info("[uptime] ⚡ Force check requested — executing now");
+      console.log("[uptime] ⚡ Force check solicitado — ejecutando ahora");
     } catch {
-      // File does not exist, normal
+      // archivo no existe, normal
     }
 
-    // Check if config reload was requested
-    let forceConfigReload = false;
-    try {
-      await fs.access(FORCE_CONFIG_RELOAD_FILE);
-      await fs.unlink(FORCE_CONFIG_RELOAD_FILE);
-      forceConfigReload = true;
-      info("[uptime] ⚙ Config reload requested — reloading services");
-    } catch {
-      // File does not exist, normal
-    }
-
-    // Reload config if forced or if interval elapsed
     const nowMs = Date.now();
-    if (forceConfigReload || (nowMs - lastConfigReloadAt) >= CONFIG_RELOAD_INTERVAL_MS) {
-      const newSections = await loadSections();
-      currentSections = newSections.length > 0 ? newSections : currentSections;
-      lastConfigReloadAt = nowMs;
-      if (forceConfigReload) {
-        info("[uptime] ✓ Config reloaded successfully");
-      }
-    }
-
     const shouldRunNormal = (nowMs - lastCheckAt) >= BASE_INTERVAL_MS;
 
     if (!forceAll && !shouldRunNormal) continue;
@@ -937,21 +931,21 @@ async function runCheck(sections, forceAll = false) {
     lastCheckAt = nowMs;
 
     try {
-      await runCheck(currentSections, forceAll);
+      await runCheck(sections, forceAll);
     } catch (err) {
-      error("[uptime] ✗ Cycle error:", err);
+      console.error("[uptime] ✗ Error en ciclo:", err);
     }
   }
 })();
 
 /* ═══════════════════════════════════════════
-   GLOBAL ERROR HANDLING
+   MANEJO DE ERRORES GLOBALES
 ═══════════════════════════════════════════ */
 
 process.on("uncaughtException", err => {
-  error("[Detector] uncaughtException:", err);
+  console.error("[Detector] uncaughtException:", err);
 });
 
 process.on("unhandledRejection", (reason) => {
-  error("[Detector] unhandledRejection:", reason);
+  console.error("[Detector] unhandledRejection:", reason);
 });
