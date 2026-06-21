@@ -4,6 +4,10 @@
  * Supports log level configuration via environment variables.
  */
 
+import { createRequire } from "module";
+import fsPromises from "fs/promises";
+
+const require = createRequire(import.meta.url);
 require("colors");
 const fs = require("fs");
 
@@ -47,4 +51,4 @@ const success = (...m) => logSafe("OK",      "green",  ...m);
 const error   = (...m) => logSafe("Error",   "red",    ...m);
 const warn    = (...m) => logSafe("Warning", "yellow", ...m);
 
-module.exports = { info, success, error, warn };
+export { info, success, error, warn };

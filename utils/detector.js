@@ -18,6 +18,7 @@ import fs from "fs/promises";
 import path from "path";
 import net from "net";
 import { setTimeout as sleep } from "timers/promises";
+import { info, success, error, warn } from "./console.js";
 
 /* ═══════════════════════════════════════════
    BASE CONFIG
@@ -105,12 +106,12 @@ async function discordRequest(method, dpath, body) {
     if (res.status === 204) return true;
     if (!res.ok) {
       const err = await res.text();
-      console.warn(`[discord] ${method} ${dpath} → ${res.status}: ${err}`);
+      warn(`[discord] ${method} ${dpath} → ${res.status}: ${err}`);
       return null;
     }
     return await res.json();
   } catch (e) {
-    console.warn("[discord] Network error:", e.message);
+    warn("[discord] Network error:", e.message);
     return null;
   }
 }
@@ -133,15 +134,15 @@ async function editDiscordMessage(messageId, embeds) {
 async function verifyBotConnection() {
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) {
-    console.warn("[discord] ⚠ DISCORD_BOT_TOKEN not configured — notifications disabled");
+    warn("[discord] ⚠ DISCORD_BOT_TOKEN not configured — notifications disabled");
     return false;
   }
   const data = await discordRequest("GET", "/users/@me", null);
   if (data && data.username) {
-    console.log(`[discord] ✅ Bot connected: ${data.username}#${data.discriminator ?? "0"} (ID: ${data.id})`);
+    success(`[discord] ✅ Bot connected: ${data.username}#${data.discriminator ?? "0"} (ID: ${data.id})`);
     return true;
   }
-  console.warn("[discord] ⚠ Could not verify bot connection (invalid token or missing permissions)");
+  warn("[discord] ⚠ Could not verify bot connection (invalid token or missing permissions)");
   return false;
 }
 
@@ -158,7 +159,7 @@ async function checkInternet() {
   // If ALL DNS checks fail → no internet
   const hasInternet = results.some(ok => ok);
   if (!hasInternet) {
-    console.warn("[internet] ⚠ All reference DNS servers not responding — assuming server internet loss. Services will not be marked as down.");
+    warn("[internet] ⚠ All reference DNS servers not responding — assuming server internet loss. Services will not be marked as down.");
   }
   return hasInternet;
 }
@@ -274,9 +275,9 @@ async function confirmDown(service) {
   for (let i = 1; i <= DOWN_CONFIRM_CHECKS; i++) {
     await sleep(DOWN_CONFIRM_DELAY);
     const result = await pingService(service);
-    console.log(`[incidents] 🔎 ${service.id} — Confirmatory check ${i}/${DOWN_CONFIRM_CHECKS}: ${result.status}`);
+    info(`[incidents] 🔎 ${service.id} — Confirmatory check ${i}/${DOWN_CONFIRM_CHECKS}: ${result.status}`);
     if (result.status === "up") {
-      console.log(`[incidents] ✅ ${service.id} — False positive discarded at confirmatory check ${i}`);
+      success(`[incidents] ✅ ${service.id} — False positive discarded at confirmatory check ${i}`);
       return false;
     }
   }
@@ -291,10 +292,10 @@ async function handleServiceDown(store, service) {
 
   // ── Confirmatory checks: 2 additional pings with 5s separation ──
   // If any responds UP → false positive, do not open incident.
-  console.log(`[incidents] ⚠ ${service.id} — Downtime detected. Running ${DOWN_CONFIRM_CHECKS} confirmatory checks (each ${DOWN_CONFIRM_DELAY / 1000}s)…`);
+  info(`[incidents] ⚠ ${service.id} — Downtime detected. Running ${DOWN_CONFIRM_CHECKS} confirmatory checks (each ${DOWN_CONFIRM_DELAY / 1000}s)…`);
   const confirmed = await confirmDown(service);
   if (!confirmed) return false; // false positive — service came back in confirmatory checks
-  console.log(`[incidents] 🔴 ${service.id} — Downtime confirmed after ${DOWN_CONFIRM_CHECKS} checks. Opening incident.`);
+  success(`[incidents] 🔴 ${service.id} — Downtime confirmed after ${DOWN_CONFIRM_CHECKS} checks. Opening incident.`);
 
   const now        = new Date().toISOString();
   const incidentId = `inc-${Date.now()}`;
@@ -325,13 +326,13 @@ async function handleServiceDown(store, service) {
         const inc = fresh.incidents?.find(i => i.id === incidentId);
         if (inc) { inc.discordMessageId = msgId; await saveStatus(fresh); }
       } catch {}
-      console.log(`[discord] 📨 Embed sent for ${service.id} (msg: ${msgId})`);
+      info(`[discord] 📨 Embed sent for ${service.id} (msg: ${msgId})`);
     } else {
-      console.warn(`[discord] ⚠ Could not send embed for ${service.id}`);
+      warn(`[discord] ⚠ Could not send embed for ${service.id}`);
     }
   });
 
-  console.log(`[incidents] 🔴 ${service.id} — Incident created: ${incidentId}`);
+  success(`[incidents] 🔴 ${service.id} — Incident created: ${incidentId}`);
 }
 
 async function handleServiceMonitoring(store, service) {
@@ -352,7 +353,7 @@ async function handleServiceMonitoring(store, service) {
     await editDiscordMessage(incident.discordMessageId, [embed]);
   });
 
-  console.log(`[incidents] 🟡 ${service.id} — Monitoring stability: ${incident.id}`);
+  info(`[incidents] 🟡 ${service.id} — Monitoring stability: ${incident.id}`);
 }
 
 async function handleStableCheck(store, service) {
@@ -362,7 +363,7 @@ async function handleStableCheck(store, service) {
 
   incident.stableCount = (incident.stableCount ?? 0) + 1;
   const count = incident.stableCount;
-  console.log(`[incidents] 🟡 ${service.id} — Stable check ${count}/${STABLE_CHECKS_REQUIRED}`);
+  info(`[incidents] 🟡 ${service.id} — Stable check ${count}/${STABLE_CHECKS_REQUIRED}`);
 
   if (count >= STABLE_CHECKS_REQUIRED) {
     const now = new Date().toISOString();
@@ -377,7 +378,7 @@ async function handleStableCheck(store, service) {
       await editDiscordMessage(incident.discordMessageId, [embed]);
     });
 
-    console.log(`[incidents] 🟢 ${service.id} — Resolved after ${STABLE_CHECKS_REQUIRED} stable checks: ${incident.id}`);
+    success(`[incidents] 🟢 ${service.id} — Resolved after ${STABLE_CHECKS_REQUIRED} stable checks: ${incident.id}`);
   }
 }
 
@@ -398,9 +399,9 @@ export async function notifyIncidentUpdate(incident, update, serviceName) {
   const embed = buildUpdateEmbed({ name: serviceName ?? incident.serviceName }, incident, update);
   const ok = await editDiscordMessage(incident.discordMessageId, [embed]);
   if (ok) {
-    console.log(`[discord] ✏ Embed edited by admin comment — incident: ${incident.id}`);
+    info(`[discord] ✏ Embed edited by admin comment — incident: ${incident.id}`);
   } else {
-    console.warn(`[discord] ⚠ Could not edit embed for incident: ${incident.id}`);
+    warn(`[discord] ⚠ Could not edit embed for incident: ${incident.id}`);
   }
 }
 
@@ -499,7 +500,7 @@ function matchesKeyword(responseBody, keyword, mode = "contains") {
         const regex = new RegExp(keyword, "i");
         return regex.test(bodyStr);
       } catch {
-        console.warn(`[keyword] Invalid regex pattern: ${keyword}`);
+        warn(`[keyword] Invalid regex pattern: ${keyword}`);
         return false;
       }
 
@@ -649,7 +650,7 @@ async function runCheck(sections, forceAll = false) {
   for (const existingId of Object.keys(store.services)) {
     if (!activeIds.has(existingId)) {
       delete store.services[existingId];
-      console.log(`[uptime] 🗑 Service removed from stats: ${existingId}`);
+      info(`[uptime] 🗑 Service removed from stats: ${existingId}`);
     }
   }
 
@@ -704,7 +705,7 @@ async function runCheck(sections, forceAll = false) {
       msvc.name      = service.name;
       msvc.status    = "maintenance";
       if (service.icon) msvc.icon = service.icon;
-      console.log(`[uptime] 🔧 ${service.id} — Under maintenance, skipping check logging`);
+      info(`[uptime] 🔧 ${service.id} — Under maintenance, skipping check logging`);
       continue;
     }
 
@@ -747,7 +748,7 @@ async function runCheck(sections, forceAll = false) {
 
         svc.hourlyHistory ??= [];
         svc.hourlyHistory.push({ hour: old.hour, onlineper, checks: old.checks.length, avgLatency });
-        console.log(`[${service.id}] Hour ${old.hour} → ${onlineper}% uptime, ${avgLatency ?? "—"} ms`);
+        info(`[${service.id}] Hour ${old.hour} → ${onlineper}% uptime, ${avgLatency ?? "—"} ms`);
       }
       svc.currentHour = { hour: currentHourKey, startedAt: timestamp, checks: [] };
     }
@@ -832,7 +833,7 @@ async function runCheck(sections, forceAll = false) {
           const inc = store.incidents.find(i => i.serviceId === service.id && !i.resolvedAt);
           if (inc && (inc.stableCount ?? 0) > 0) {
             inc.stableCount = 0;
-            console.log(`[incidents] 🔴 ${service.id} — Fell back down in monitoring, restarting count`);
+            success(`[incidents] 🔴 ${service.id} — Fell back down in monitoring, restarting count`);
           }
         }
         // If inMaintenance: ignore downtime, maintenance already covers status
@@ -859,7 +860,7 @@ async function runCheck(sections, forceAll = false) {
   store.sections    = sections.map(s => ({ id: s.id, name: s.name }));
 
   await saveStatus(store);
-  console.log(`[uptime] ✓ Check completed — Total online: ${store.totalonline}%`);
+  success(`[uptime] ✓ Check completed — Total online: ${store.totalonline}%`);
 }
 
 /* ═══════════════════════════════════════════
@@ -872,17 +873,17 @@ async function runCheck(sections, forceAll = false) {
   const now      = getLocalDate();
   const tzStr    = TIMEZONE_OFFSET >= 0 ? `UTC+${TIMEZONE_OFFSET}` : `UTC${TIMEZONE_OFFSET}`;
 
-  console.log("╔══════════════════════════════════════════════════════════════════╗");
-  console.log("║   NEXORA UPTIME MONITOR v5.3 – CONFIRM CHECKS + CONFIG RELOAD   ║");
-  console.log("╠══════════════════════════════════════════════════════════════════╣");
-  console.log(`║  • Base interval:     every 1 minute (per-service configurable) ║`);
-  console.log(`║  • Confirm checks:    2 pings × 5s before opening incident      ║`);
-  console.log(`║  • Config reload:     every 30s (FORCE_CONFIG_RELOAD file)     ║`);
-  console.log(`║  • Keyword detection: contains, exact, regex, json modes      ║`);
-  console.log(`║  • Timezone:          ${tzStr.padEnd(45)}║`);
-  console.log(`║  • Local time:        ${now.toISOString().replace("T"," ").substring(0,19).padEnd(45)}║`);
-  console.log(`║  • Config file:       data/services.json                       ║`);
-  console.log("╚══════════════════════════════════════════════════════════════════╝\n");
+  info("╔══════════════════════════════════════════════════════════════════╗");
+  info("║   NEXORA UPTIME MONITOR v5.3 – CONFIRM CHECKS + CONFIG RELOAD   ║");
+  info("╠══════════════════════════════════════════════════════════════════╣");
+  info(`║  • Base interval:     every 1 minute (per-service configurable) ║`);
+  info(`║  • Confirm checks:    2 pings × 5s before opening incident      ║`);
+  info(`║  • Config reload:     every 30s (FORCE_CONFIG_RELOAD file)     ║`);
+  info(`║  • Keyword detection: contains, exact, regex, json modes      ║`);
+  info(`║  • Timezone:          ${tzStr.padEnd(45)}║`);
+  info(`║  • Local time:        ${now.toISOString().replace("T"," ").substring(0,19).padEnd(45)}║`);
+  info(`║  • Config file:       data/services.json                       ║`);
+  info("╚══════════════════════════════════════════════════════════════════╝\n");
 
   await ensureStorage();
 
@@ -901,7 +902,7 @@ async function runCheck(sections, forceAll = false) {
       await fs.access(FORCE_CHECK_FILE);
       await fs.unlink(FORCE_CHECK_FILE);
       forceAll = true;
-      console.log("[uptime] ⚡ Force check requested — executing now");
+      info("[uptime] ⚡ Force check requested — executing now");
     } catch {
       // File does not exist, normal
     }
@@ -912,7 +913,7 @@ async function runCheck(sections, forceAll = false) {
       await fs.access(FORCE_CONFIG_RELOAD_FILE);
       await fs.unlink(FORCE_CONFIG_RELOAD_FILE);
       forceConfigReload = true;
-      console.log("[uptime] ⚙ Config reload requested — reloading services");
+      info("[uptime] ⚙ Config reload requested — reloading services");
     } catch {
       // File does not exist, normal
     }
@@ -924,7 +925,7 @@ async function runCheck(sections, forceAll = false) {
       currentSections = newSections.length > 0 ? newSections : currentSections;
       lastConfigReloadAt = nowMs;
       if (forceConfigReload) {
-        console.log("[uptime] ✓ Config reloaded successfully");
+        info("[uptime] ✓ Config reloaded successfully");
       }
     }
 
@@ -937,7 +938,7 @@ async function runCheck(sections, forceAll = false) {
     try {
       await runCheck(currentSections, forceAll);
     } catch (err) {
-      console.error("[uptime] ✗ Cycle error:", err);
+      error("[uptime] ✗ Cycle error:", err);
     }
   }
 })();
@@ -947,9 +948,9 @@ async function runCheck(sections, forceAll = false) {
 ═══════════════════════════════════════════ */
 
 process.on("uncaughtException", err => {
-  console.error("[Detector] uncaughtException:", err);
+  error("[Detector] uncaughtException:", err);
 });
 
 process.on("unhandledRejection", (reason) => {
-  console.error("[Detector] unhandledRejection:", reason);
+  error("[Detector] unhandledRejection:", reason);
 });

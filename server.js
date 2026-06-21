@@ -7,6 +7,7 @@ import { spawn } from "child_process";
 import cors      from "cors";
 import crypto    from "crypto";
 import dotenv   from "dotenv";
+import { info, success, error, warn } from "./utils/console.js";
 
 dotenv.config();
 
@@ -41,9 +42,9 @@ async function loadEnv() {
       const val = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
       if (key && !(key in process.env)) process.env[key] = val;
     }
-    console.log("[Server] .env loaded successfully");
+    info("[Server] .env loaded successfully");
   } catch {
-    console.log("[Server] No .env file — using system environment variables");
+    info("[Server] No .env file — using system environment variables");
   }
 }
 
@@ -170,7 +171,7 @@ const allowedOrigins = process.env.ALLOWED_ORIGINS
   : null;
 
 if (IS_PROD && !allowedOrigins) {
-  console.warn("[Server] ⚠ ALLOWED_ORIGINS no configurado — CORS acepta cualquier origen. Configura ALLOWED_ORIGINS en .env para producción.");
+  warn("[Server] ⚠ ALLOWED_ORIGINS no configurado — CORS acepta cualquier origen. Configura ALLOWED_ORIGINS en .env para producción.");
 }
 
 app.use(cors({
@@ -198,11 +199,11 @@ try {
     env: { ...process.env },
   });
   detector.on("exit", (code, signal) => {
-    console.log(`[Uptime Detector] Proceso terminado (code=${code}, signal=${signal})`);
+    info(`[Uptime Detector] Proceso terminado (code=${code}, signal=${signal})`);
   });
-  console.log("[Uptime Detector] Started in background");
+  info("[Uptime Detector] Started in background");
 } catch (err) {
-  console.error("[Uptime Detector] Error starting:", err);
+  error("[Uptime Detector] Error starting:", err);
 }
 
 /* ═══════════════════════════════════════════
@@ -303,11 +304,11 @@ async function sendStatusEmbed() {
         body: JSON.stringify({ embeds }),
       });
       if (editRes.ok) {
-        console.log("[discord] 📡 Embed de estado actualizado");
+        info("[discord] 📡 Embed de estado actualizado");
         return;
       }
       // Mensaje no existe o no se puede editar — crear nuevo
-      console.warn(`[discord] No se pudo editar mensaje (${editRes.status}), creando nuevo`);
+      warn(`[discord] No se pudo editar mensaje (${editRes.status}), creando nuevo`);
       _statusMessageId = null;
     }
 
@@ -321,12 +322,12 @@ async function sendStatusEmbed() {
       const msg = await postRes.json();
       _statusMessageId = msg.id;
       await writeEnv({ DISCORD_STATUS_MESSAGE_ID: msg.id });
-      console.log(`[discord] 📡 Embed de estado creado: ${msg.id}`);
+      info(`[discord] 📡 Embed de estado creado: ${msg.id}`);
     } else {
-      console.warn(`[discord] ⚠ status embed: ${postRes.status} — ${await postRes.text()}`);
+      warn(`[discord] ⚠ status embed: ${postRes.status} — ${await postRes.text()}`);
     }
   } catch (e) {
-    console.warn("[discord] Error en sendStatusEmbed:", e.message);
+    warn("[discord] Error en sendStatusEmbed:", e.message);
   }
 }
 
@@ -340,7 +341,7 @@ function watchStatusFile() {
     clearTimeout(_statusWatchDebounce);
     _statusWatchDebounce = setTimeout(() => sendStatusEmbed(), 1500);
   });
-  console.log("[discord] 👁 Watching status.json para auto-embed (polling 5s)");
+  info("[discord] 👁 Watching status.json para auto-embed (polling 5s)");
 }
 
 /* ═══════════════════════════════════════════
@@ -398,13 +399,13 @@ async function editDiscordEmbed(incident, update, serviceName) {
       }
     );
     if (res.ok) {
-      console.log(`[discord] ✏ Embed editado por comentario admin — incidente: ${incident.id}`);
+      info(`[discord] ✏ Embed editado por comentario admin — incidente: ${incident.id}`);
     } else {
       const err = await res.text();
-      console.warn(`[discord] ⚠ No se pudo editar embed: ${res.status} — ${err}`);
+      warn(`[discord] ⚠ No se pudo editar embed: ${res.status} — ${err}`);
     }
   } catch (e) {
-    console.warn("[discord] Error de red al editar embed:", e.message);
+    warn("[discord] Error de red al editar embed:", e.message);
   }
 }
 
@@ -539,7 +540,7 @@ app.get("/uptime", async (_req, res) => {
     res.setHeader("Cache-Control", "no-cache, no-store");
     res.json({ ok: true, ...json });
   } catch (err) {
-    console.error("[/uptime] Error:", err.message);
+    error("[/uptime] Error:", err.message);
     res.status(500).json({ ok: false, error: "No se pudo leer status.json" });
   }
 });
@@ -788,11 +789,11 @@ app.post("/admin/api/incidents", adminLimiter, adminAuth, async (req, res) => {
           const fresh = await readJson(STATUS_FILE);
           const inc = fresh.incidents?.find(i => i.id === incidentId);
           if (inc) { inc.discordMessageId = dmsg.id; await writeJson(STATUS_FILE, fresh); }
-          console.log(`[discord] 📨 Embed enviado para incidente manual ${incidentId} (msg: ${dmsg.id})`);
+          info(`[discord] 📨 Embed enviado para incidente manual ${incidentId} (msg: ${dmsg.id})`);
         }
       }
     } catch (e) {
-      console.warn("[discord] Error al enviar embed de incidente manual:", e.message);
+      warn("[discord] Error al enviar embed de incidente manual:", e.message);
     }
   }
 
@@ -1047,7 +1048,7 @@ app.use((_req, res) => {
 
 // eslint-disable-next-line no-unused-vars
 app.use((err, _req, res, _next) => {
-  console.error("[Server] Error no manejado:", err.message);
+  error("[Server] Error no manejado:", err.message);
   res.status(500).json({ error: "Error interno del servidor" });
 });
 
@@ -1060,15 +1061,15 @@ app.use((err, _req, res, _next) => {
   watchStatusFile();
 
   app.listen(PORT, () => {
-    console.log(`[Web Server] http://localhost:${PORT}`);
-    console.log(`[Admin Panel] http://localhost:${PORT}/admin`);
-    console.log(`[Login Page] http://localhost:${PORT}/login`);
-    if (!IS_PROD) console.log("[Server] Modo desarrollo — logs extendidos activos");
+    info(`[Web Server] http://localhost:${PORT}`);
+    info(`[Admin Panel] http://localhost:${PORT}/admin`);
+    info(`[Login Page] http://localhost:${PORT}/login`);
+    if (!IS_PROD) info("[Server] Modo desarrollo — logs extendidos activos");
   });
 })();
 
 function shutdown(signal) {
-  console.log(`\n[Server] Apagando (${signal})...`);
+  info(`\n[Server] Apagando (${signal})...`);
   if (detector && !detector.killed) {
     detector.kill("SIGTERM");
     setTimeout(() => { if (!detector.killed) detector.kill("SIGKILL"); process.exit(0); }, 3000).unref();
@@ -1080,5 +1081,5 @@ function shutdown(signal) {
 
 process.on("SIGINT",  () => shutdown("SIGINT"));
 process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("uncaughtException", err => { console.error("[Server] uncaughtException:", err); });
-process.on("unhandledRejection", (reason) => { console.error("[Server] unhandledRejection:", reason); });
+process.on("uncaughtException", err => { error("[Server] uncaughtException:", err); });
+process.on("unhandledRejection", (reason) => { error("[Server] unhandledRejection:", reason); });
