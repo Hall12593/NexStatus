@@ -260,10 +260,16 @@ async function sendStatusEmbed() {
 
   try {
     const [statusData, appearance] = await Promise.all([readJson(STATUS_FILE), readAppearance()]);
-    const serviceFilter = (process.env.DISCORD_STATUS_SERVICES ?? "").split(",").map(s => s.trim()).filter(Boolean);
-
-    const allServices = Object.values(statusData.services ?? {})
-      .filter(svc => !serviceFilter.length || serviceFilter.includes(svc.id));
+    // Get service filter with order preserved
+    const serviceOrderStr = (process.env.DISCORD_STATUS_SERVICES ?? "").split(",").map(s => s.trim()).filter(Boolean);
+    
+    // If no specific order is set, use all services in their natural order
+    const allServicesObj = Object.values(statusData.services ?? {});
+    const allServices = serviceOrderStr.length === 0 
+      ? allServicesObj
+      : serviceOrderStr
+          .map(svcId => allServicesObj.find(s => s.id === svcId))
+          .filter(s => s != null); // Remove nulls from non-existent services
 
     const allUp    = allServices.length > 0 && allServices.every(s => s.status === "up");
     const someDown = allServices.some(s => s.status === "down");
