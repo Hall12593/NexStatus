@@ -1681,6 +1681,12 @@ function openServiceModal(existing, sIdx, svIdx) {
 
     overlay2.querySelector("#svc-test-btn")?.addEventListener("click", async () => {
       const out = overlay2.querySelector("#svc-test-result");
+      let testHeaders;
+      const rawHeaders = overlay2.querySelector("#svc-headers").value.trim();
+      if (rawHeaders) {
+        try { testHeaders = JSON.parse(rawHeaders); }
+        catch { showToast("Los headers no son JSON válido", "error"); return; }
+      }
       const testSvc = {
         url:           overlay2.querySelector("#svc-url").value.trim(),
         checkType:     overlay2.querySelector("#svc-check-type").value,
@@ -1690,6 +1696,7 @@ function openServiceModal(existing, sIdx, svIdx) {
         dnsRecordType: overlay2.querySelector("#svc-dns-type").value,
         dnsServer:     overlay2.querySelector("#svc-dns-server").value.trim() || undefined,
         timeout:       parseInt(overlay2.querySelector("#svc-timeout").value) || undefined,
+        headers:       testHeaders,
       };
       if (!testSvc.url) { showToast("URL requerida para probar", "error"); return; }
 
