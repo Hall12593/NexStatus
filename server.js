@@ -17,15 +17,16 @@ const IS_PROD = process.env.NODE_ENV === "production";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
-const DATA_DIR         = path.join(__dirname, "data");
-const STATUS_FILE      = path.join(DATA_DIR, "status.json");
-const SERVICES_FILE    = path.join(DATA_DIR, "services.json");
-const FORCE_CHECK_FILE = path.join(DATA_DIR, "force_check");
-const APPEARANCE_FILE  = path.join(DATA_DIR, "appearance.json");
-const ENV_FILE         = path.join(__dirname, ".env");
+const DATA_DIR              = path.join(__dirname, "data");
+const STATUS_FILE           = path.join(DATA_DIR, "status.json");
+const SERVICES_FILE         = path.join(DATA_DIR, "services.json");
+const FORCE_CHECK_FILE      = path.join(DATA_DIR, "force_check");
+const FORCE_CONFIG_RELOAD_FILE = path.join(DATA_DIR, "force_config_reload");
+const APPEARANCE_FILE       = path.join(DATA_DIR, "appearance.json");
+const ENV_FILE              = path.join(__dirname, ".env");
 
 /* ═══════════════════════════════════════════
-   CARGA DE .env
+   LOAD .env
 ═══════════════════════════════════════════ */
 
 async function loadEnv() {
@@ -40,9 +41,9 @@ async function loadEnv() {
       const val = trimmed.slice(eq + 1).trim().replace(/^["']|["']$/g, "");
       if (key && !(key in process.env)) process.env[key] = val;
     }
-    console.log("[Server] .env cargado correctamente");
+    console.log("[Server] .env loaded successfully");
   } catch {
-    console.log("[Server] Sin archivo .env — usando variables de entorno del sistema");
+    console.log("[Server] No .env file — using system environment variables");
   }
 }
 
@@ -199,9 +200,9 @@ try {
   detector.on("exit", (code, signal) => {
     console.log(`[Uptime Detector] Proceso terminado (code=${code}, signal=${signal})`);
   });
-  console.log("[Uptime Detector] Iniciado en segundo plano");
+  console.log("[Uptime Detector] Started in background");
 } catch (err) {
-  console.error("[Uptime Detector] Error al iniciar:", err);
+  console.error("[Uptime Detector] Error starting:", err);
 }
 
 /* ═══════════════════════════════════════════
@@ -329,7 +330,7 @@ async function sendStatusEmbed() {
   }
 }
 
-// Watcher: envía embed de estado cada vez que detector.js actualiza status.json
+// Watcher: sends status embed each time detector.js updates status.json
 let _statusWatchDebounce = null;
 function watchStatusFile() {
   // fsSync.watch pierde el inode tras rename atómico (tmp → file).
@@ -657,12 +658,23 @@ app.get("/admin/api/status", adminLimiter, adminAuth, async (_req, res) => {
 app.post("/admin/api/force-check", adminLimiter, adminAuth, async (_req, res) => {
   try {
     await fs.writeFile(FORCE_CHECK_FILE, "1");
-    res.json({ ok: true, message: "Force check solicitado. Se actualizará en segundos." });
+    res.json({ ok: true, message: "Force check requested. Will update in seconds." });
   } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 /* ═══════════════════════════════════════════
-   ADMIN – ANUNCIOS
+   ADMIN – FORCE CONFIG RELOAD
+═══════════════════════════════════════════ */
+
+app.post("/admin/api/force-config-reload", adminLimiter, adminAuth, async (_req, res) => {
+  try {
+    await fs.writeFile(FORCE_CONFIG_RELOAD_FILE, "1");
+    res.json({ ok: true, message: "Config reload requested. Services will be reloaded in seconds." });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+/* ═══════════════════════════════════════════
+   ADMIN – ANNOUNCEMENTS
 ═══════════════════════════════════════════ */
 
 app.get("/admin/api/announcements", adminLimiter, adminAuth, async (_req, res) => {
