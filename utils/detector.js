@@ -797,7 +797,7 @@ async function runCheck(sections, forceAll = false) {
     const prevStatus = svc.status;
     const recent     = svc.currentHour.checks.slice(-10);
     const ups        = recent.filter(c => c.status === "up").length;
-    const newStatus  = isNew ? "up" : (ups > recent.length / 2 ? "up" : "down");
+    const newStatus  = isNew ? "up" : result.status;
 
     const latencies  = recent.filter(c => c.latency != null).map(c => c.latency);
     const avgLatency = latencies.length > 0
@@ -825,9 +825,10 @@ async function runCheck(sections, forceAll = false) {
           // handleServiceDown performs confirmatory checks internally (2 × 5s)
           const opened = await handleServiceDown(store, service);
           if (opened === false) {
-            // False positive — correct the already-recorded check to "up"
+            // False positive — correct the already-recorded check to "up" and revert status
             const last = svc.currentHour.checks[svc.currentHour.checks.length - 1];
             if (last && last.status === "down") last.status = "up";
+            svc.status = prevStatus ?? "up";
           }
         } else if (inMonitoring) {
           const inc = store.incidents.find(i => i.serviceId === service.id && !i.resolvedAt);
