@@ -2008,10 +2008,7 @@ document.getElementById("save-settings-btn").addEventListener("click", async () 
   const totpSecret            = document.getElementById("cfg-totp-secret")?.value.trim() ?? "";
 
   // Collect selected services (respecting order)
-  const discordStatusServices = _discordStatusServicesSelected.length === 0 || 
-    _discordStatusServicesSelected.length === _allServicesForSelector.length
-    ? ""
-    : _discordStatusServicesSelected.join(",");
+  const discordStatusServices = _discordStatusServicesSelected.join(",");
 
   if (adminToken && adminToken.length < 16) {
     showToast("El token de admin debe tener al menos 16 caracteres", "error");
