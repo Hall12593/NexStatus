@@ -16,6 +16,32 @@ const CLOUDFLARE_INDICATORS = [
   "checking your browser", "ddos protection", "security check",
 ];
 
+function matchesKeyword(responseBody, keyword, mode = "contains") {
+  if (!keyword || !responseBody) return false;
+  const bodyStr = String(responseBody).trim();
+
+  switch (mode) {
+    case "exact":
+      return bodyStr === keyword;
+    case "regex":
+      try {
+        return new RegExp(keyword, "i").test(bodyStr);
+      } catch {
+        return false;
+      }
+    case "json":
+      try {
+        const json = JSON.parse(bodyStr);
+        return JSON.stringify(json).includes(keyword);
+      } catch {
+        return bodyStr.toLowerCase().includes(keyword.toLowerCase());
+      }
+    case "contains":
+    default:
+      return bodyStr.toLowerCase().includes(keyword.toLowerCase());
+  }
+}
+
 function isCloudflareBlock(bodyText, headers) {
   const cfRay = headers?.get?.("cf-ray");
   if (cfRay) return true;
@@ -67,9 +93,9 @@ export async function pingService(service) {
       const latency = Date.now() - start;
 
       if (checkType === "keyword" && service.keyword) {
-        const body  = await res.text();
-        const mode  = service.keywordMode === "exact" ? "exact" : "contains";
-        const match = mode === "exact" ? body.trim() === service.keyword : body.includes(service.keyword);
+        const body = await res.text();
+        const mode = service.keywordMode ?? "contains";
+        const match = matchesKeyword(body, service.keyword, mode);
         return {
           status: match ? "up" : "down", code: res.status, latency,
           error: match ? null : "keyword_not_found",

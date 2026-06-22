@@ -363,6 +363,32 @@
 
     .settings-card-title { font-weight: 700; font-size: 15px; color: #fff; margin-bottom: 16px; }
 
+    .discord-services-modal-overlay {
+      position: fixed; inset: 0; z-index: 1100; background: rgba(0,0,0,.6); backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center; padding: 20px; opacity: 0; pointer-events: none; transition: opacity .2s;
+    }
+    .discord-services-modal-overlay.open { opacity: 1; pointer-events: auto; }
+    .discord-services-modal {
+      width: min(680px, 100%); max-height: 84vh; overflow: hidden; background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+      display: flex; flex-direction: column;
+    }
+    .discord-services-modal-header { display:flex;align-items:center;justify-content:space-between;padding:20px 24px;border-bottom:1px solid var(--border); }
+    .discord-services-modal-title { font-size: 16px; font-weight: 800; color:#fff; }
+    .discord-services-modal-close { background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer; }
+    .discord-services-modal-close:hover { color:#fff; }
+    .discord-services-modal-body { padding: 16px 24px 8px; display:flex;flex-direction:column;gap:8px; overflow:auto; }
+    .service-item { display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:rgba(255,255,255,.03); }
+    .service-item.selected { border-color: rgba(56,189,248,.35); background: rgba(56,189,248,.08); }
+    .service-item.dragging { opacity:.6; }
+    .service-item.drag-over { border-color: var(--accent); }
+    .drag-handle { display:grid;grid-template-columns:repeat(2, 6px);gap:3px; cursor:grab; padding:4px; }
+    .drag-handle i { width:6px;height:6px;border-radius:50%;background:var(--muted);display:block; }
+    .service-item-checkbox { width:16px;height:16px; accent-color: var(--accent); }
+    .service-item-info { flex:1; display:flex;align-items:center;justify-content:space-between; gap:10px; }
+    .service-item-name { font-weight:600; color:#fff; }
+    .service-item-order { font-size:11px;color:var(--accent);font-weight:700; }
+    .discord-services-modal-footer { display:flex;justify-content:flex-end;gap:10px;padding:16px 24px 20px;border-top:1px solid var(--border); }
+
     /* Inline edit for icon picker */
     .icon-preview {
       display: flex; align-items: center; gap: 8px;
@@ -697,7 +723,29 @@
               <div class="form-hint">ID del canal donde se enviarán notificaciones de incidentes.</div>
             </div>
           </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Canal de estado (ID)</label>
+              <input class="form-input" type="text" id="cfg-discord-status-channel" placeholder="123456789012345678"/>
+              <div class="form-hint">Canal donde se envía el embed de estado del sistema.</div>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+              <label class="form-label" style="margin:0;">Servicios en el embed de estado</label>
+              <button type="button" class="btn btn-ghost" id="discord-services-edit-btn" style="padding:6px 12px;font-size:12px;gap:4px;">
+                <i class="fa-solid fa-edit"></i> Editar orden
+              </button>
+            </div>
+            <div id="discord-status-services-list" style="display:flex;flex-wrap:wrap;gap:8px;min-height:32px;padding:8px 0;"></div>
+            <div class="form-hint">Los servicios se mostrarán en el orden que selecciones. Si no seleccionas ninguno, aparecerán todos.</div>
+          </div>
           <div id="discord-status" style="font-size:13px;color:var(--muted);margin-bottom:16px;"></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-ghost" id="discord-reload-btn" style="gap:6px;"><i class="fa-solid fa-rotate"></i> Recargar bot</button>
+            <button class="btn btn-ghost" id="discord-test-btn" style="gap:6px;"><i class="fa-solid fa-vial"></i> Test</button>
+            <button class="btn btn-ghost" id="discord-send-status-btn" style="gap:6px;"><i class="fa-solid fa-paper-plane"></i> Enviar embed de estado</button>
+          </div>
         </div>
 
         <div class="settings-card">
@@ -829,6 +877,8 @@ function esc(s) {
 let TOKEN       = sessionStorage.getItem("nexora_admin_token") ?? "";
 let statusData  = null;
 let sectionsData = [];
+let discordStatusSelection = [];
+let discordServiceDraftOrder = [];
 
 /* ═══════════════════════════════════════════
    UTILS
@@ -867,6 +917,107 @@ function showToast(msg, type = "success") {
   el.innerHTML = `<i class="fa-solid ${icon}"></i>${msg}`;
   document.getElementById("toast-container").appendChild(el);
   setTimeout(() => el.remove(), 3500);
+}
+
+function getAvailableDiscordServices() {
+  const out = [];
+  sectionsData.forEach(section => {
+    (section.services || []).forEach(svc => {
+      out.push({ id: svc.id, name: svc.name, sectionName: section.name });
+    });
+  });
+  return out;
+}
+
+function renderDiscordServiceSummary() {
+  const listEl = document.getElementById("discord-status-services-list");
+  if (!listEl) return;
+  if (!discordStatusSelection.length) {
+    listEl.innerHTML = '<span style="font-size:12px;color:var(--muted);">Todos los servicios</span>';
+    return;
+  }
+  listEl.innerHTML = discordStatusSelection.map((svc, idx) => `
+    <span style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:1px solid var(--border);border-radius:999px;background:rgba(56,189,248,.08);font-size:12px;color:#fff;">
+      <span style="font-size:10px;color:var(--accent);font-weight:700;">#${idx + 1}</span>
+      ${esc(svc.name)}
+    </span>
+  `).join("");
+}
+
+function closeDiscordServicesModal() {
+  document.getElementById("discord-services-modal-overlay").classList.remove("open");
+}
+
+function openDiscordServicesModal() {
+  const overlay = document.getElementById("discord-services-modal-overlay");
+  const body = document.getElementById("discord-services-modal-body");
+  const services = getAvailableDiscordServices();
+  const initialIds = discordStatusSelection.length
+    ? discordStatusSelection.map(s => s.id)
+    : services.map(s => s.id);
+  discordServiceDraftOrder = [...initialIds.filter(id => services.some(s => s.id === id))];
+  const serviceLookup = Object.fromEntries(services.map(s => [s.id, s]));
+
+  function render() {
+    const selectedIds = new Set(discordServiceDraftOrder);
+    const selectedServices = discordServiceDraftOrder
+      .map(id => serviceLookup[id])
+      .filter(Boolean);
+    const unselectedServices = services.filter(s => !selectedIds.has(s.id));
+    const displayList = [...selectedServices, ...unselectedServices];
+
+    body.innerHTML = "";
+    displayList.forEach((svc) => {
+      const selected = selectedIds.has(svc.id);
+      const row = document.createElement("div");
+      row.className = `service-item${selected ? " selected" : ""}`;
+      row.innerHTML = `
+        <div class="drag-handle"><i></i><i></i></div>
+        <input class="service-item-checkbox" type="checkbox" ${selected ? "checked" : ""}>
+        <div class="service-item-info">
+          <div>
+            <div class="service-item-name">${esc(svc.name)}</div>
+            <div style="font-size:11px;color:var(--muted);">${esc(svc.sectionName || "")}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            ${selected ? `<span class="service-item-order">#${discordServiceDraftOrder.indexOf(svc.id) + 1}</span>` : `<span style="font-size:11px;color:var(--muted);">No incluido</span>`}
+            ${selected ? `<button class="btn btn-ghost btn-sm" data-move-up="${svc.id}" type="button"><i class="fa-solid fa-arrow-up"></i></button>` : ""}
+            ${selected ? `<button class="btn btn-ghost btn-sm" data-move-down="${svc.id}" type="button"><i class="fa-solid fa-arrow-down"></i></button>` : ""}
+          </div>
+        </div>`;
+      row.querySelector(".service-item-checkbox").addEventListener("change", (e) => {
+        const id = svc.id;
+        if (e.target.checked) {
+          if (!discordServiceDraftOrder.includes(id)) discordServiceDraftOrder.push(id);
+        } else {
+          discordServiceDraftOrder = discordServiceDraftOrder.filter(item => item !== id);
+        }
+        render();
+      });
+      const moveUp = row.querySelector("[data-move-up]");
+      const moveDown = row.querySelector("[data-move-down]");
+      if (moveUp) moveUp.addEventListener("click", () => {
+        const idx = discordServiceDraftOrder.indexOf(svc.id);
+        if (idx > 0) {
+          const [item] = discordServiceDraftOrder.splice(idx, 1);
+          discordServiceDraftOrder.splice(idx - 1, 0, item);
+          render();
+        }
+      });
+      if (moveDown) moveDown.addEventListener("click", () => {
+        const idx = discordServiceDraftOrder.indexOf(svc.id);
+        if (idx >= 0 && idx < discordServiceDraftOrder.length - 1) {
+          const [item] = discordServiceDraftOrder.splice(idx, 1);
+          discordServiceDraftOrder.splice(idx + 1, 0, item);
+          render();
+        }
+      });
+      body.appendChild(row);
+    });
+  }
+
+  render();
+  overlay.classList.add("open");
 }
 
 function openModal(html, { onConfirm, confirmText = "Confirmar", confirmClass = "btn-primary" } = {}) {
@@ -1342,6 +1493,46 @@ async function loadIncidents() {
   }
 }
 
+document.getElementById("discord-services-modal-close").addEventListener("click", closeDiscordServicesModal);
+document.getElementById("discord-services-modal-overlay").addEventListener("click", (e) => {
+  if (e.target.id === "discord-services-modal-overlay") closeDiscordServicesModal();
+});
+document.getElementById("discord-services-cancel-btn").addEventListener("click", closeDiscordServicesModal);
+document.getElementById("discord-services-confirm-btn").addEventListener("click", () => {
+  const services = getAvailableDiscordServices();
+  const serviceLookup = Object.fromEntries(services.map(s => [s.id, s]));
+  discordStatusSelection = discordServiceDraftOrder
+    .map(id => serviceLookup[id])
+    .filter(Boolean);
+  renderDiscordServiceSummary();
+  closeDiscordServicesModal();
+});
+document.getElementById("discord-services-edit-btn").addEventListener("click", openDiscordServicesModal);
+document.getElementById("discord-reload-btn").addEventListener("click", async () => {
+  try {
+    const res = await api("POST", "/admin/api/discord/reload");
+    showToast(res.username ? `Bot verificado: ${res.username}` : "Bot recargado");
+  } catch (err) {
+    showToast(err?.message || "No se pudo recargar el bot", "error");
+  }
+});
+document.getElementById("discord-test-btn").addEventListener("click", async () => {
+  try {
+    await api("POST", "/admin/api/discord/test");
+    showToast("Mensaje de prueba enviado");
+  } catch (err) {
+    showToast(err?.message || "No se pudo enviar el mensaje de prueba", "error");
+  }
+});
+document.getElementById("discord-send-status-btn").addEventListener("click", async () => {
+  try {
+    await api("POST", "/admin/api/discord/send-status");
+    showToast("Embed de estado enviado");
+  } catch (err) {
+    showToast(err?.message || "No se pudo enviar el embed de estado", "error");
+  }
+});
+
 function addIncidentUpdate(inc) {
   const STATUS_LABELS = {
     investigating: "🔴 Investigando", identified: "🟡 Identificado",
@@ -1415,6 +1606,7 @@ async function loadMonitors() {
     const data = await api("GET", "/admin/api/services");
     sectionsData = data.sections ?? [];
     renderSectionsEditor();
+    renderDiscordServiceSummary();
   } catch {
     showToast("Error al cargar monitores", "error");
   }
@@ -1774,8 +1966,25 @@ document.getElementById("save-monitors-btn").addEventListener("click", async () 
 
 async function loadSettings() {
   try {
-    const cfg = await api("GET", "/admin/api/settings");
+    const [cfg, servicesResp] = await Promise.all([
+      api("GET", "/admin/api/settings"),
+      api("GET", "/admin/api/services").catch(() => ({ sections: [] })),
+    ]);
+    sectionsData = servicesResp.sections ?? [];
     document.getElementById("cfg-discord-channel").value = cfg.discordChannelId ?? "";
+    document.getElementById("cfg-discord-status-channel").value = cfg.discordStatusChannelId ?? "";
+    const services = getAvailableDiscordServices();
+    const selectedIds = (cfg.discordStatusServices || "")
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean);
+    discordStatusSelection = selectedIds
+      .map(id => services.find(svc => svc.id === id))
+      .filter(Boolean);
+    if (!discordStatusSelection.length && services.length) {
+      discordStatusSelection = services.map(svc => ({ id: svc.id, name: svc.name, sectionName: svc.sectionName }));
+    }
+    renderDiscordServiceSummary();
 
     const statusEl = document.getElementById("discord-status");
     if (cfg.discordBotToken) {
@@ -1835,10 +2044,12 @@ document.getElementById("save-appearance-btn").addEventListener("click", async (
 });
 
 document.getElementById("save-settings-btn").addEventListener("click", async () => {
-  const discordBotToken  = document.getElementById("cfg-discord-token").value.trim();
-  const discordChannelId = document.getElementById("cfg-discord-channel").value.trim();
-  const adminToken       = document.getElementById("cfg-admin-token").value.trim();
-  const totpSecret       = document.getElementById("cfg-totp-secret")?.value.trim() ?? "";
+  const discordBotToken        = document.getElementById("cfg-discord-token").value.trim();
+  const discordChannelId       = document.getElementById("cfg-discord-channel").value.trim();
+  const discordStatusChannelId = document.getElementById("cfg-discord-status-channel").value.trim();
+  const adminToken             = document.getElementById("cfg-admin-token").value.trim();
+  const totpSecret             = document.getElementById("cfg-totp-secret")?.value.trim() ?? "";
+  const discordStatusServices  = discordStatusSelection.map(s => s.id).join(",");
 
   if (adminToken && adminToken.length < 16) {
     showToast("El token de admin debe tener al menos 16 caracteres", "error");
@@ -1847,10 +2058,12 @@ document.getElementById("save-settings-btn").addEventListener("click", async () 
 
   try {
     await api("PUT", "/admin/api/settings", {
-      discordBotToken:  discordBotToken  || undefined,
-      discordChannelId: discordChannelId || undefined,
-      adminToken:       adminToken       || undefined,
-      totpSecret:       totpSecret       || undefined,
+      discordBotToken:        discordBotToken        || undefined,
+      discordChannelId:       discordChannelId       || undefined,
+      discordStatusChannelId: discordStatusChannelId || undefined,
+      discordStatusServices:  discordStatusServices,
+      adminToken:             adminToken             || undefined,
+      totpSecret:             totpSecret             || undefined,
     });
 
     if (adminToken) {
@@ -2117,5 +2330,18 @@ function patchDashboardRows() {
   });
 }
 </script>
+<div class="discord-services-modal-overlay" id="discord-services-modal-overlay">
+  <div class="discord-services-modal" id="discord-services-modal">
+    <div class="discord-services-modal-header">
+      <div class="discord-services-modal-title">Seleccionar servicios para embed</div>
+      <button class="discord-services-modal-close" id="discord-services-modal-close" type="button"><i class="fa-solid fa-xmark"></i></button>
+    </div>
+    <div class="discord-services-modal-body" id="discord-services-modal-body"></div>
+    <div class="discord-services-modal-footer">
+      <button class="btn btn-ghost" id="discord-services-cancel-btn" type="button">Cancelar</button>
+      <button class="btn btn-primary" id="discord-services-confirm-btn" type="button">Listo</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>

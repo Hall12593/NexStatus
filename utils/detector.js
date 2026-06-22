@@ -25,6 +25,7 @@ import { pingService, tcpPing } from "./checkers.js";
 const BASE_INTERVAL_MS  = 60_000;
 const TIMEZONE_OFFSET   = -6;
 const FORCE_CHECK_FILE  = path.resolve(process.cwd(), "data", "force_check");
+const FORCE_CONFIG_RELOAD_FILE = path.resolve(process.cwd(), "data", "force_config_reload");
 const EMBED_DELAY_MS    = 1_500; // delay entre embeds cuando caen múltiples servicios
 
 const DATA_DIR      = path.resolve(process.cwd(), "data");
@@ -477,6 +478,8 @@ async function saveStatus(data) {
 ═══════════════════════════════════════════ */
 
 const nextCheckAt = {};
+let lastConfigReloadAt = 0;
+const CONFIG_RELOAD_INTERVAL_MS = 30_000;
 
 async function runCheck(sections, forceAll = false) {
   // Antes de chequear servicios, verificar conectividad a internet
@@ -582,6 +585,7 @@ async function runCheck(sections, forceAll = false) {
     svc.name       = service.name;
     svc.checkType  = service.checkType ?? "http";
     svc.keyword    = service.keyword ?? null;
+    svc.keywordMode = service.keywordMode ?? "contains";
     svc.timeout    = service.timeout ?? null;
     if (service.icon) svc.icon = service.icon;
 
@@ -760,6 +764,7 @@ async function runCheck(sections, forceAll = false) {
   await verifyBotConnection();
 
   let lastCheckAt = 0;
+  let currentSections = await loadSections();
 
   while (true) {
     await sleep(5_000);
@@ -775,7 +780,22 @@ async function runCheck(sections, forceAll = false) {
       // archivo no existe, normal
     }
 
+    let forceConfigReload = false;
+    try {
+      await fs.access(FORCE_CONFIG_RELOAD_FILE);
+      await fs.unlink(FORCE_CONFIG_RELOAD_FILE);
+      forceConfigReload = true;
+      console.log("[uptime] ⚙ Config reload solicitado — recargando servicios");
+    } catch {}
+
     const nowMs = Date.now();
+    if (forceConfigReload || (nowMs - lastConfigReloadAt) >= CONFIG_RELOAD_INTERVAL_MS) {
+      const newSections = await loadSections();
+      currentSections = newSections.length > 0 ? newSections : currentSections;
+      lastConfigReloadAt = nowMs;
+      if (forceConfigReload) console.log("[uptime] ✓ Config recargada correctamente");
+    }
+
     const shouldRunNormal = (nowMs - lastCheckAt) >= BASE_INTERVAL_MS;
 
     if (!forceAll && !shouldRunNormal) continue;
@@ -783,7 +803,7 @@ async function runCheck(sections, forceAll = false) {
     lastCheckAt = nowMs;
 
     try {
-      await runCheck(sections, forceAll);
+      await runCheck(currentSections, forceAll);
     } catch (err) {
       console.error("[uptime] ✗ Error en ciclo:", err);
     }

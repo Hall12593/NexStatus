@@ -2,11 +2,13 @@ import express  from "express";
 import path      from "path";
 import { fileURLToPath } from "url";
 import fs        from "fs/promises";
+import fsSync    from "fs";
 import { spawn } from "child_process";
 import cors      from "cors";
 import crypto    from "crypto";
 import dotenv   from "dotenv";
 import { pingService } from "./utils/checkers.js";
+import { info, success, error, warn } from "./utils/console.js";
 
 dotenv.config();
 
@@ -17,12 +19,13 @@ const IS_PROD = process.env.NODE_ENV === "production";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
-const DATA_DIR         = path.join(__dirname, "data");
-const STATUS_FILE      = path.join(DATA_DIR, "status.json");
-const SERVICES_FILE    = path.join(DATA_DIR, "services.json");
-const FORCE_CHECK_FILE = path.join(DATA_DIR, "force_check");
-const APPEARANCE_FILE  = path.join(DATA_DIR, "appearance.json");
-const ENV_FILE         = path.join(__dirname, ".env");
+const DATA_DIR              = path.join(__dirname, "data");
+const STATUS_FILE           = path.join(DATA_DIR, "status.json");
+const SERVICES_FILE         = path.join(DATA_DIR, "services.json");
+const FORCE_CHECK_FILE      = path.join(DATA_DIR, "force_check");
+const FORCE_CONFIG_RELOAD_FILE = path.join(DATA_DIR, "force_config_reload");
+const APPEARANCE_FILE       = path.join(DATA_DIR, "appearance.json");
+const ENV_FILE              = path.join(__dirname, ".env");
 
 /* ═══════════════════════════════════════════
    CARGA DE .env
@@ -223,6 +226,125 @@ function getAdminToken() {
 }
 
 /* ═══════════════════════════════════════════
+   DISCORD — estado del bot y embeds de estado
+═══════════════════════════════════════════ */
+
+const botState = { verified: false, username: null, lastCheck: null };
+let _statusMessageId = process.env.DISCORD_STATUS_MESSAGE_ID ?? null;
+let _statusWatchDebounce = null;
+
+async function verifyBotToken(token) {
+  try {
+    const res = await fetch("https://discord.com/api/v10/users/@me", {
+      headers: { "Authorization": `Bot ${token}` },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      botState.verified = true;
+      botState.username = data.username;
+      botState.lastCheck = new Date().toISOString();
+      return { ok: true, username: data.username };
+    }
+    botState.verified = false;
+    return { ok: false, status: res.status };
+  } catch (e) {
+    botState.verified = false;
+    return { ok: false, error: e.message };
+  }
+}
+
+async function sendStatusEmbed() {
+  const token = process.env.DISCORD_BOT_TOKEN;
+  const channelId = process.env.DISCORD_STATUS_CHANNEL_ID;
+  if (!token || !channelId || !botState.verified) return;
+
+  try {
+    const [statusData, appearance] = await Promise.all([readJson(STATUS_FILE), readAppearance()]);
+    const serviceOrderStr = (process.env.DISCORD_STATUS_SERVICES ?? "")
+      .split(",")
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    const allServicesObj = Object.values(statusData.services ?? {});
+    const allServices = serviceOrderStr.length === 0
+      ? allServicesObj
+      : serviceOrderStr
+          .map(svcId => allServicesObj.find(s => s.id === svcId))
+          .filter(Boolean);
+
+    const allUp = allServices.length > 0 && allServices.every(s => s.status === "up");
+    const someDown = allServices.some(s => s.status === "down");
+    const globalUp = statusData.totalonline != null
+      ? Number(statusData.totalonline).toFixed(2)
+      : (allServices.length > 0
+          ? (allServices.reduce((s, v) => s + (v.onlineper ?? 100), 0) / allServices.length).toFixed(2)
+          : "100.00");
+    const color = someDown ? 0xef4444 : (allUp ? 0x22c55e : 0xf59e0b);
+    const statusStr = someDown ? "⚠️ Degradado" : (allUp ? "✅ Operacional" : "🔄 Parcial");
+    const siteTitle = appearance.siteTitle?.trim() || "del sistema";
+    const embedTitle = `📡 Estado de ${siteTitle}`;
+
+    const fields = allServices.map(svc => {
+      const icon = svc.status === "up" ? "🟢" : "🔴";
+      const uptime = typeof svc.onlineper === "number" ? `${svc.onlineper.toFixed(2)}%` : "—";
+      const lat = svc.latency != null ? `${svc.latency}ms` : "—";
+      return { name: `${icon} ${svc.name}`, value: `📈 Uptime: \`${uptime}\`\n⚡ Latencia: \`${lat}\``, inline: true };
+    });
+
+    const chunks = [];
+    for (let i = 0; i < fields.length; i += 9) chunks.push(fields.slice(i, i + 9));
+    if (chunks.length === 0) chunks.push([]);
+
+    const embeds = chunks.map((chunk, idx) => ({
+      title: idx === 0 ? embedTitle : undefined,
+      description: idx === 0 ? `**Uptime Global:** \`${globalUp}%\`\n**Estado:** ${statusStr}\n**Actualización:** <t:${Math.floor(Date.now() / 1000)}:R>` : undefined,
+      color,
+      timestamp: idx === 0 ? new Date().toISOString() : undefined,
+      fields: chunk,
+    }));
+
+    if (_statusMessageId) {
+      const editRes = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages/${_statusMessageId}`, {
+        method: "PATCH",
+        headers: { "Authorization": `Bot ${token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ embeds }),
+      });
+      if (editRes.ok) {
+        info("[discord] 📡 Embed de estado actualizado");
+        return;
+      }
+      warn(`[discord] No se pudo editar mensaje (${editRes.status}), creando nuevo`);
+      _statusMessageId = null;
+    }
+
+    const postRes = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+      method: "POST",
+      headers: { "Authorization": `Bot ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ embeds }),
+    });
+    if (postRes.ok) {
+      const msg = await postRes.json();
+      _statusMessageId = msg.id;
+      await writeEnv({ DISCORD_STATUS_MESSAGE_ID: msg.id });
+      info(`[discord] 📡 Embed de estado creado: ${msg.id}`);
+    } else {
+      warn(`[discord] ⚠ status embed: ${postRes.status} — ${await postRes.text()}`);
+    }
+  } catch (e) {
+    warn("[discord] Error en sendStatusEmbed:", e.message);
+  }
+}
+
+function watchStatusFile() {
+  fsSync.watchFile(STATUS_FILE, { interval: 5000, persistent: false }, (curr, prev) => {
+    if (curr.mtimeMs === prev.mtimeMs) return;
+    clearTimeout(_statusWatchDebounce);
+    _statusWatchDebounce = setTimeout(() => sendStatusEmbed(), 1500);
+  });
+  info("[discord] 👁 Watching status.json para auto-embed (polling 5s)");
+}
+
+/* ═══════════════════════════════════════════
    DISCORD — editar embed cuando admin comenta
 ═══════════════════════════════════════════ */
 
@@ -334,10 +456,12 @@ function verifyTotp(secret, userCode, window = 1) {
 ═══════════════════════════════════════════ */
 
 function adminAuth(req, res, next) {
-  const token = req.headers["x-admin-token"];
-  const valid = getAdminToken();
+  const token = String(req.headers["x-admin-token"] ?? "").trim();
+  const valid = String(getAdminToken() ?? "").trim();
   if (!valid) return res.status(500).json({ error: "Token de administrador no configurado" });
-  if (!token || !crypto.timingSafeEqual(Buffer.from(token), Buffer.from(valid))) {
+  const tokenBuf = Buffer.from(token, "utf8");
+  const validBuf = Buffer.from(valid, "utf8");
+  if (!token || tokenBuf.length !== validBuf.length || !crypto.timingSafeEqual(tokenBuf, validBuf)) {
     return res.status(401).json({ error: "Token inválido o ausente" });
   }
   next();
@@ -766,20 +890,26 @@ app.put("/admin/api/services", adminLimiter, adminAuth, async (req, res) => {
 app.get("/admin/api/settings", adminLimiter, adminAuth, async (_req, res) => {
   const botToken = process.env.DISCORD_BOT_TOKEN ?? "";
   res.json({
-    discordBotToken:  botToken  ? `${botToken.slice(0, 8)}…`  : "",
-    discordChannelId: process.env.DISCORD_CHANNEL_ID ?? "",
-    hasAdminToken:    !!(process.env.ADMIN_TOKEN),
-    hasTotpSecret:    !!(process.env.TOTP_SECRET),
-    totpSecretHint:   process.env.TOTP_SECRET ? `${process.env.TOTP_SECRET.slice(0, 4)}…` : "",
-    appearance:       await readAppearance(),
+    discordBotToken:        botToken ? `${botToken.slice(0, 8)}…` : "",
+    discordChannelId:      process.env.DISCORD_CHANNEL_ID ?? "",
+    discordStatusChannelId: process.env.DISCORD_STATUS_CHANNEL_ID ?? "",
+    discordStatusServices: process.env.DISCORD_STATUS_SERVICES ?? "",
+    hasAdminToken:         !!(process.env.ADMIN_TOKEN),
+    hasTotpSecret:         !!(process.env.TOTP_SECRET),
+    totpSecretHint:        process.env.TOTP_SECRET ? `${process.env.TOTP_SECRET.slice(0, 4)}…` : "",
+    botState,
+    appearance:            await readAppearance(),
   });
 });
 
 app.put("/admin/api/settings", adminLimiter, adminAuth, async (req, res) => {
-  const { discordBotToken, discordChannelId, adminToken, totpSecret } = req.body;
+  const { discordBotToken, discordChannelId, discordStatusChannelId, discordStatusServices, adminToken, totpSecret } = req.body;
 
   if (discordChannelId && !/^\d{1,25}$/.test(discordChannelId)) {
     return res.status(400).json({ error: "discordChannelId inválido" });
+  }
+  if (discordStatusChannelId && !/^\d{1,25}$/.test(discordStatusChannelId)) {
+    return res.status(400).json({ error: "discordStatusChannelId inválido" });
   }
   if (adminToken && IS_PROD && adminToken.length < 16) {
     return res.status(400).json({ error: "adminToken debe tener al menos 16 caracteres" });
@@ -787,12 +917,50 @@ app.put("/admin/api/settings", adminLimiter, adminAuth, async (req, res) => {
 
   const updates = {};
   if (discordChannelId)                              updates.DISCORD_CHANNEL_ID = discordChannelId;
-  if (adminToken)                                    updates.ADMIN_TOKEN        = adminToken;
+  if (discordStatusChannelId)                        updates.DISCORD_STATUS_CHANNEL_ID = discordStatusChannelId;
+  if (discordStatusServices !== undefined)          updates.DISCORD_STATUS_SERVICES = discordStatusServices;
+  if (adminToken)                                    updates.ADMIN_TOKEN = adminToken;
   if (discordBotToken && !discordBotToken.includes("…")) updates.DISCORD_BOT_TOKEN = discordBotToken;
-  if (totpSecret?.trim())                            updates.TOTP_SECRET        = totpSecret.trim().toUpperCase();
+  if (totpSecret?.trim())                            updates.TOTP_SECRET = totpSecret.trim().toUpperCase();
 
   await writeEnv(updates);
+  if (discordBotToken && !discordBotToken.includes("…")) {
+    await verifyBotToken(discordBotToken);
+  }
   res.json({ ok: true });
+});
+
+app.post("/admin/api/discord/reload", adminLimiter, adminAuth, async (_req, res) => {
+  const token = process.env.DISCORD_BOT_TOKEN;
+  if (!token) return res.status(400).json({ error: "No hay token de Discord configurado" });
+  const result = await verifyBotToken(token);
+  if (result.ok) return res.json({ ok: true, username: result.username });
+  return res.status(502).json({ error: result.error || `Estado ${result.status}` });
+});
+
+app.post("/admin/api/discord/test", adminLimiter, adminAuth, async (_req, res) => {
+  const token = process.env.DISCORD_BOT_TOKEN;
+  const channelId = process.env.DISCORD_CHANNEL_ID;
+  if (!token || !channelId) return res.status(400).json({ error: "Faltan credenciales de Discord" });
+  const dres = await fetch(`https://discord.com/api/v10/channels/${channelId}/messages`, {
+    method: "POST",
+    headers: { "Authorization": `Bot ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ content: "🧪 Test de notificaciones de Nexora Status" }),
+  });
+  if (!dres.ok) {
+    const err = await dres.text();
+    return res.status(502).json({ error: err || "No se pudo enviar el mensaje de prueba" });
+  }
+  res.json({ ok: true });
+});
+
+app.post("/admin/api/discord/send-status", adminLimiter, adminAuth, async (_req, res) => {
+  try {
+    await sendStatusEmbed();
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 /* ═══════════════════════════════════════════
@@ -856,12 +1024,18 @@ app.use((err, _req, res, _next) => {
 
 (async () => {
   await loadEnv();
+  if (process.env.DISCORD_BOT_TOKEN) {
+    await verifyBotToken(process.env.DISCORD_BOT_TOKEN);
+  }
+  try {
+    if (fsSync.existsSync(STATUS_FILE)) watchStatusFile();
+  } catch {}
 
   app.listen(PORT, () => {
-    console.log(`[Web Server] http://localhost:${PORT}`);
-    console.log(`[Admin Panel] http://localhost:${PORT}/admin`);
-    console.log(`[Login Page] http://localhost:${PORT}/login`);
-    if (!IS_PROD) console.log("[Server] Modo desarrollo — logs extendidos activos");
+    info(`[Web Server] http://localhost:${PORT}`);
+    info(`[Admin Panel] http://localhost:${PORT}/admin`);
+    info(`[Login Page] http://localhost:${PORT}/login`);
+    if (!IS_PROD) info("[Server] Modo desarrollo — logs extendidos activos");
   });
 })();
 
