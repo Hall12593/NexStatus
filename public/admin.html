@@ -381,8 +381,17 @@
     .service-item.selected { border-color: rgba(56,189,248,.35); background: rgba(56,189,248,.08); }
     .service-item.dragging { opacity:.6; }
     .service-item.drag-over { border-color: var(--accent); }
-    .drag-handle { display:grid;grid-template-columns:repeat(2, 6px);gap:3px; cursor:grab; padding:4px; }
-    .drag-handle i { width:6px;height:6px;border-radius:50%;background:var(--muted);display:block; }
+    .drag-handle {
+      display:grid;
+      grid-template-columns:repeat(3, 5px);
+      gap:2px;
+      cursor:grab;
+      padding:4px;
+      align-content:center;
+      justify-content:center;
+      min-width:24px;
+    }
+    .drag-handle i { width:5px;height:5px;border-radius:50%;background:var(--muted);display:block; }
     .service-item-checkbox { width:16px;height:16px; accent-color: var(--accent); }
     .service-item-info { flex:1; display:flex;align-items:center;justify-content:space-between; gap:10px; }
     .service-item-name { font-weight:600; color:#fff; }
@@ -879,6 +888,7 @@ let statusData  = null;
 let sectionsData = [];
 let discordStatusSelection = [];
 let discordServiceDraftOrder = [];
+let discordDragId = null;
 
 /* ═══════════════════════════════════════════
    UTILS
@@ -951,6 +961,8 @@ function closeDiscordServicesModal() {
 function openDiscordServicesModal() {
   const overlay = document.getElementById("discord-services-modal-overlay");
   const body = document.getElementById("discord-services-modal-body");
+  if (!overlay || !body) return;
+
   const services = getAvailableDiscordServices();
   const initialIds = discordStatusSelection.length
     ? discordStatusSelection.map(s => s.id)
@@ -971,8 +983,11 @@ function openDiscordServicesModal() {
       const selected = selectedIds.has(svc.id);
       const row = document.createElement("div");
       row.className = `service-item${selected ? " selected" : ""}`;
+      row.dataset.serviceId = svc.id;
       row.innerHTML = `
-        <div class="drag-handle"><i></i><i></i></div>
+        <div class="drag-handle" ${selected ? 'draggable="true"' : ""} title="${selected ? "Arrastra para cambiar el orden" : ""}">
+          <i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
         <input class="service-item-checkbox" type="checkbox" ${selected ? "checked" : ""}>
         <div class="service-item-info">
           <div>
@@ -985,7 +1000,46 @@ function openDiscordServicesModal() {
             ${selected ? `<button class="btn btn-ghost btn-sm" data-move-down="${svc.id}" type="button"><i class="fa-solid fa-arrow-down"></i></button>` : ""}
           </div>
         </div>`;
-      row.querySelector(".service-item-checkbox").addEventListener("change", (e) => {
+
+      const handle = row.querySelector(".drag-handle");
+      const checkbox = row.querySelector(".service-item-checkbox");
+
+      if (selected && handle) {
+        handle.addEventListener("dragstart", (e) => {
+          discordDragId = svc.id;
+          row.classList.add("dragging");
+          e.dataTransfer?.setData("text/plain", svc.id);
+          if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+        });
+        handle.addEventListener("dragend", () => {
+          discordDragId = null;
+          row.classList.remove("dragging");
+          body.querySelectorAll(".service-item").forEach(item => item.classList.remove("drag-over"));
+        });
+        row.addEventListener("dragover", (e) => {
+          if (!discordDragId || discordDragId === svc.id) return;
+          e.preventDefault();
+          row.classList.add("drag-over");
+        });
+        row.addEventListener("dragleave", () => {
+          row.classList.remove("drag-over");
+        });
+        row.addEventListener("drop", (e) => {
+          e.preventDefault();
+          row.classList.remove("drag-over");
+          if (!discordDragId || discordDragId === svc.id) return;
+          const fromIndex = discordServiceDraftOrder.indexOf(discordDragId);
+          const toIndex = discordServiceDraftOrder.indexOf(svc.id);
+          if (fromIndex >= 0 && toIndex >= 0 && fromIndex !== toIndex) {
+            const [moved] = discordServiceDraftOrder.splice(fromIndex, 1);
+            discordServiceDraftOrder.splice(toIndex, 0, moved);
+            render();
+          }
+          discordDragId = null;
+        });
+      }
+
+      checkbox.addEventListener("change", (e) => {
         const id = svc.id;
         if (e.target.checked) {
           if (!discordServiceDraftOrder.includes(id)) discordServiceDraftOrder.push(id);
@@ -1493,21 +1547,33 @@ async function loadIncidents() {
   }
 }
 
-document.getElementById("discord-services-modal-close").addEventListener("click", closeDiscordServicesModal);
-document.getElementById("discord-services-modal-overlay").addEventListener("click", (e) => {
-  if (e.target.id === "discord-services-modal-overlay") closeDiscordServicesModal();
-});
-document.getElementById("discord-services-cancel-btn").addEventListener("click", closeDiscordServicesModal);
-document.getElementById("discord-services-confirm-btn").addEventListener("click", () => {
-  const services = getAvailableDiscordServices();
-  const serviceLookup = Object.fromEntries(services.map(s => [s.id, s]));
-  discordStatusSelection = discordServiceDraftOrder
-    .map(id => serviceLookup[id])
-    .filter(Boolean);
-  renderDiscordServiceSummary();
-  closeDiscordServicesModal();
-});
-document.getElementById("discord-services-edit-btn").addEventListener("click", openDiscordServicesModal);
+function initDiscordServicesModalControls() {
+  const closeBtn = document.getElementById("discord-services-modal-close");
+  const overlay = document.getElementById("discord-services-modal-overlay");
+  const cancelBtn = document.getElementById("discord-services-cancel-btn");
+  const confirmBtn = document.getElementById("discord-services-confirm-btn");
+  const editBtn = document.getElementById("discord-services-edit-btn");
+
+  if (!closeBtn || !overlay || !cancelBtn || !confirmBtn || !editBtn) return;
+
+  closeBtn.addEventListener("click", closeDiscordServicesModal);
+  overlay.addEventListener("click", (e) => {
+    if (e.target.id === "discord-services-modal-overlay") closeDiscordServicesModal();
+  });
+  cancelBtn.addEventListener("click", closeDiscordServicesModal);
+  confirmBtn.addEventListener("click", () => {
+    const services = getAvailableDiscordServices();
+    const serviceLookup = Object.fromEntries(services.map(s => [s.id, s]));
+    discordStatusSelection = discordServiceDraftOrder
+      .map(id => serviceLookup[id])
+      .filter(Boolean);
+    renderDiscordServiceSummary();
+    closeDiscordServicesModal();
+  });
+  editBtn.addEventListener("click", openDiscordServicesModal);
+}
+
+document.addEventListener("DOMContentLoaded", initDiscordServicesModalControls);
 document.getElementById("discord-reload-btn").addEventListener("click", async () => {
   try {
     const res = await api("POST", "/admin/api/discord/reload");
